@@ -64,14 +64,6 @@
       margin-bottom: 1rem;
     }
 
-    .tagline {
-      font-size: clamp(1rem, 2.5vw, 1.25rem);
-      color: #666;
-      font-weight: 400;
-      letter-spacing: 0.01em;
-      margin-bottom: 3rem;
-    }
-
     .badge {
       display: inline-block;
       background: linear-gradient(135deg, rgba(42, 191, 170, 0.12), rgba(30, 155, 184, 0.12));
@@ -83,56 +75,7 @@
       text-transform: uppercase;
       padding: 0.45rem 1.1rem;
       border-radius: 100px;
-      margin-bottom: 3.5rem;
-    }
-
-    .notify-form {
-      display: flex;
-      gap: 0.5rem;
-      max-width: 400px;
-      margin: 0 auto;
-    }
-
-    .notify-form input {
-      flex: 1;
-      padding: 0.75rem 1rem;
-      border: 1.5px solid #e0e0e0;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      outline: none;
-      transition: border-color 0.2s;
-      background: #fff;
-      color: #1a1a1a;
-    }
-
-    .notify-form input:focus {
-      border-color: #2abfaa;
-    }
-
-    .notify-form input::placeholder {
-      color: #aaa;
-    }
-
-    .notify-form button {
-      padding: 0.75rem 1.4rem;
-      background: linear-gradient(135deg, #2abfaa, #1e9bb8);
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: opacity 0.2s, transform 0.1s;
-      white-space: nowrap;
-    }
-
-    .notify-form button:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-    }
-
-    .notify-form button:active {
-      transform: translateY(0);
+      margin-bottom: 0;
     }
 
     .footer {
@@ -148,25 +91,9 @@
   <div class="container">
     <div class="badge">Coming Soon</div>
     <div class="logo">Collexis</div>
-    <p class="tagline">Something exciting is on its way.</p>
-    <form class="notify-form" onsubmit="handleSubmit(event)">
-      <input type="email" placeholder="Enter your email" required />
-      <button type="submit">Notify me</button>
-    </form>
   </div>
 
   <p class="footer">&copy; 2026 Collexis</p>
 
-  <script>
-    function handleSubmit(e) {
-      e.preventDefault();
-      const btn = e.target.querySelector('button');
-      const input = e.target.querySelector('input');
-      btn.textContent = "You're on the list!";
-      btn.style.background = 'linear-gradient(135deg, #2abfaa, #1e9bb8)';
-      btn.disabled = true;
-      input.disabled = true;
-    }
-  </script>
 </body>
 </html>
