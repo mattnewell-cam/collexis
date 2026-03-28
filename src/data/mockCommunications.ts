@@ -1,0 +1,107 @@
+import { Communication } from '@/types/communication';
+
+export const mockCommunications: Record<string, Communication[]> = {
+  // Patricia Whitmore – Stern chase, 47 days overdue
+  '1': [
+    {
+      id: 'c1-1',
+      jobId: '1',
+      category: 'due-date',
+      date: '2026-02-01',
+      shortDescription: 'Invoice payment due',
+      details: 'Invoice #001 for emergency burst pipe repair. Total: £1,420.00. Payment terms: 14 days.',
+    },
+    {
+      id: 'c1-2',
+      jobId: '1',
+      category: 'collexis-handover',
+      date: '2026-02-15',
+      shortDescription: 'Case handed to Collexis',
+      details: 'Client failed to pay within terms. Case escalated to Collexis for debt recovery.',
+    },
+    {
+      id: 'c1-3',
+      jobId: '1',
+      category: 'chase',
+      subtype: 'email',
+      date: '2026-02-16',
+      shortDescription: 'First chase email sent',
+      details: 'Subject: Outstanding Invoice #001 – Payment Reminder\n\nDear Mrs Whitmore,\n\nI hope this email finds you well. I\'m writing to remind you that invoice #001 for £1,420.00 remains unpaid. The payment was due on 1st February 2026.\n\nPlease arrange payment at your earliest convenience.\n\nKind regards',
+    },
+    {
+      id: 'c1-4',
+      jobId: '1',
+      category: 'chase',
+      subtype: 'email',
+      date: '2026-03-02',
+      shortDescription: 'Second chase email sent',
+      details: 'Subject: URGENT – Outstanding Invoice #001\n\nDear Mrs Whitmore,\n\nFurther to my previous email, invoice #001 for £1,420.00 remains unpaid and is now significantly overdue.\n\nPlease treat this as a matter of urgency.\n\nKind regards',
+    },
+    {
+      id: 'c1-5',
+      jobId: '1',
+      category: 'chase',
+      subtype: 'voicemail',
+      date: '2026-03-10',
+      shortDescription: 'Voicemail left, no answer',
+      details: 'Called 07712 334 891 at 09:45. No answer. Left voicemail requesting callback regarding outstanding payment.',
+    },
+  ],
+  // Holt Commercial Ltd – Letter of Action sent
+  '2': [
+    {
+      id: 'c2-1',
+      jobId: '2',
+      category: 'due-date',
+      date: '2026-02-10',
+      shortDescription: 'Invoice payment due',
+      details: 'Invoice #002 for consumer unit upgrade. Total: £2,800.00.',
+    },
+    {
+      id: 'c2-2',
+      jobId: '2',
+      category: 'chase',
+      subtype: 'email',
+      date: '2026-02-20',
+      shortDescription: 'Chase email to accounts',
+      details: 'Sent to accounts@holtcommercial.co.uk requesting payment of £2,800.',
+    },
+    {
+      id: 'c2-3',
+      jobId: '2',
+      category: 'conversation',
+      subtype: 'phone',
+      date: '2026-02-25',
+      shortDescription: 'Phone call with M. Holt',
+      details: 'Spoke with M. Holt directly. He claims £2,400 was verbally agreed. Informed him the signed quote confirms £2,800. He said he would "look into it" and call back. No callback received.',
+    },
+    {
+      id: 'c2-4',
+      jobId: '2',
+      category: 'letter',
+      date: '2026-03-10',
+      shortDescription: 'Letter of Action posted',
+      details: 'Formal Letter Before Action sent via Royal Mail signed-for delivery to 9 Cavendish Place, Leeds LS1 2HG. 14-day deadline to respond or settle.',
+    },
+  ],
+  // The Patel Family – Polite chase
+  '3': [
+    {
+      id: 'c3-1',
+      jobId: '3',
+      category: 'due-date',
+      date: '2026-03-01',
+      shortDescription: 'Remaining balance due',
+      details: 'Balance of £2,600 due (total £3,100 less £500 deposit paid at booking).',
+    },
+    {
+      id: 'c3-2',
+      jobId: '3',
+      category: 'chase',
+      subtype: 'email',
+      date: '2026-03-15',
+      shortDescription: 'Friendly payment reminder sent',
+      details: 'Polite email reminder sent to r.patel@gmail.com noting the outstanding balance of £2,600.',
+    },
+  ],
+};
