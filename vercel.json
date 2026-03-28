@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "console.collexis.io" }],
+      "destination": "/console/$1"
+    }
+  ]
+}
