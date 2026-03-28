@@ -7,11 +7,11 @@ export default function NavBar() {
   const isConsole = pathname.startsWith('/console');
 
   return (
-    <nav className="w-full bg-white border-b border-gray-200 shadow-sm h-14 flex items-center px-6">
-      <div className="flex items-center justify-between w-full max-w-6xl mx-auto">
+    <nav className="w-full border-b border-gray-200 shadow-sm h-16 flex items-center px-8" style={{ background: '#f8f9fb' }}>
+      <div className="flex items-center justify-between w-full">
         {/* Wordmark */}
         <span
-          className="text-xl font-bold tracking-tight"
+          className="text-2xl font-bold tracking-tight"
           style={{
             background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)',
             WebkitBackgroundClip: 'text',

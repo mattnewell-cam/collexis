@@ -19,8 +19,8 @@ function DaysOverdueBadge({ days }: { days: number }) {
     classes = 'bg-gray-100 text-gray-600';
   }
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${classes}`}>
-      {days}d overdue
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs ${classes}`}>
+      {days}d
     </span>
   );
 }
@@ -54,8 +54,8 @@ export default function JobsTable({ jobs }: Props) {
               >
                 <td className="px-5 py-4 text-gray-800 whitespace-nowrap">{job.address}</td>
                 <td className="px-5 py-4 text-gray-700">{job.jobDescription}</td>
-                <td className="px-5 py-4 text-gray-800 whitespace-nowrap font-medium">{job.name}</td>
-                <td className="px-5 py-4 text-gray-800 whitespace-nowrap font-medium">
+                <td className="px-5 py-4 text-gray-800 whitespace-nowrap">{job.name}</td>
+                <td className="px-5 py-4 text-gray-800 whitespace-nowrap">
                   ${job.price.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </td>
                 <td className="px-5 py-4">
