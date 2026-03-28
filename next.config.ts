@@ -5,9 +5,14 @@ const nextConfig: NextConfig = {
     return {
       beforeFiles: [
         {
-          source: '/:path*',
-          has: [{ type: 'host', value: 'console.collexis.uk' }],
-          destination: '/console/:path*',
+          source: '/',
+          has: [{ type: 'host', value: 'console\\.collexis\\.uk' }],
+          destination: '/console',
+        },
+        {
+          source: '/:path+',
+          has: [{ type: 'host', value: 'console\\.collexis\\.uk' }],
+          destination: '/console/:path+',
         },
       ],
     };
