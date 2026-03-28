@@ -31,7 +31,7 @@ export default function TimelineItem({ comm, onEdit, onDelete }: Props) {
         <div className="absolute top-0 bottom-0 left-1/2 -translate-x-px w-px bg-gray-200" />
         {/* Badge centred vertically */}
         <div className="absolute inset-0 flex items-center justify-center z-10">
-          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${catDef.color}`}>
+          <span className={`px-2 py-0.5 rounded-full text-sm font-medium text-center leading-snug ${catDef.color}`}>
             {catDef.label}
           </span>
         </div>
