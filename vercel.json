@@ -1,8 +1,13 @@
 {
   "rewrites": [
     {
+      "source": "/",
+      "has": [{ "type": "host", "value": "console\.collexis\.uk" }],
+      "destination": "/console"
+    },
+    {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "console.collexis.io" }],
+      "has": [{ "type": "host", "value": "console\.collexis\.uk" }],
       "destination": "/console/$1"
     }
   ]
