@@ -1,8 +1,8 @@
 'use client';
 
 import { ReactNode, useId, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Job, JobStatus } from '@/types/job';
-import JobRowModal from './JobRowModal';
 
 interface Props {
   jobs: Job[];
@@ -60,7 +60,7 @@ function StatusBadge({ status }: { status: JobStatus }) {
 }
 
 export default function JobsTable({ jobs, actions }: Props) {
-  const [selectedJob, setSelectedJob] = useState<Job | null>(null);
+  const router = useRouter();
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputId = useId();
@@ -163,7 +163,7 @@ export default function JobsTable({ jobs, actions }: Props) {
                 <tr
                   key={job.id}
                   className="cursor-pointer transition-colors hover:bg-teal-50"
-                  onClick={() => setSelectedJob(job)}
+                  onClick={() => router.push(`/console/jobs/${job.id}`)}
                 >
                   <td className="whitespace-nowrap px-5 py-4 text-gray-800">
                     {job.address}
@@ -215,12 +215,6 @@ export default function JobsTable({ jobs, actions }: Props) {
         </table>
       </div>
 
-      {selectedJob && (
-        <JobRowModal
-          job={selectedJob}
-          onClose={() => setSelectedJob(null)}
-        />
-      )}
     </>
   );
 }
