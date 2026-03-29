@@ -8,6 +8,10 @@ This version has breaking changes - APIs, conventions, and file structure may al
 
 Whenever making UI changes, take a screenshot of the result afterwards and check that it looks correct before completing the turn.
 
+## Worktree Workflow
+
+When work in a worktree is complete, merge it cleanly into main: switch to main, merge the worktree branch (fast-forward if possible, otherwise a regular merge), then delete the worktree branch.
+
 ## UI Content
 
 Do not add explanatory UI copy that is redundant with the control itself or otherwise irrelevant to the user just because the prompt mentioned it. Prefer concise interfaces over instructional filler. For example, avoid helper text like "This filter searches the address, name and description fields" sitting next to a filter unless that information is genuinely necessary for the user to succeed.
