@@ -18,6 +18,12 @@ const DetailsIcon = () => (
   </svg>
 );
 
+const DocumentsIcon = () => (
+  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+  </svg>
+);
+
 const CommsIcon = () => (
   <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -28,6 +34,7 @@ export default function JobSidebar({ jobId, name, address }: Props) {
   const pathname = usePathname();
 
   const tabs = [
+    { label: 'Documents', href: `/console/jobs/${jobId}/documents`, icon: <DocumentsIcon /> },
     { label: 'Details', href: `/console/jobs/${jobId}/details`, icon: <DetailsIcon /> },
     { label: 'Communications', href: `/console/jobs/${jobId}/communications`, icon: <CommsIcon /> },
   ];

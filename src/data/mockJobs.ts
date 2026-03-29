@@ -1,5 +1,7 @@
 import { Job } from '@/types/job';
 
+let nextId = 13;
+
 export const mockJobs: Job[] = [
   {
     id: '1',
@@ -183,3 +185,23 @@ export const mockJobs: Job[] = [
     contextInstructions: 'Paid in full with brief delay due to university payment cycle. No issues — excellent client.',
   },
 ];
+
+export function addJob(name: string, address: string, documents: string[]): Job {
+  const job: Job = {
+    id: String(nextId++),
+    name,
+    address,
+    jobDescription: '',
+    jobDetail: '',
+    price: 0,
+    amountPaid: 0,
+    daysOverdue: 0,
+    status: 'Initial wait',
+    emails: [],
+    phones: [],
+    invoiceDocuments: documents,
+    contextInstructions: '',
+  };
+  mockJobs.push(job);
+  return job;
+}
