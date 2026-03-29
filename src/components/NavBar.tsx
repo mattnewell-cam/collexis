@@ -1,10 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 export default function NavBar() {
   const pathname = usePathname();
-  const isConsole = pathname.startsWith('/console');
+  const isComms = pathname.startsWith('/console/communications');
+  const isJobs = pathname.startsWith('/console') && !isComms;
 
   return (
     <nav className="w-full border-b border-gray-200 shadow-sm h-16 flex items-center px-8" style={{ background: '#f8f9fb' }}>
@@ -24,26 +26,34 @@ export default function NavBar() {
 
         {/* Tabs */}
         <div className="flex items-center gap-1">
-          <button
+          <Link
+            href="/console"
             className={`relative px-4 py-1.5 text-sm font-medium transition-colors ${
-              isConsole ? 'text-[#1e9bb8]' : 'text-gray-600 hover:text-gray-900'
+              isJobs ? 'text-[#1e9bb8]' : 'text-gray-600 hover:text-gray-900'
             }`}
           >
             Jobs
-            {isConsole && (
+            {isJobs && (
               <span
                 className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
                 style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
               />
             )}
-          </button>
-          <button
-            className="px-4 py-1.5 text-sm font-medium text-gray-400 opacity-40 cursor-not-allowed pointer-events-none"
-            tabIndex={-1}
-            aria-disabled="true"
+          </Link>
+          <Link
+            href="/console/communications"
+            className={`relative px-4 py-1.5 text-sm font-medium transition-colors ${
+              isComms ? 'text-[#1e9bb8]' : 'text-gray-600 hover:text-gray-900'
+            }`}
           >
             Communications
-          </button>
+            {isComms && (
+              <span
+                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full"
+                style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+              />
+            )}
+          </Link>
         </div>
       </div>
     </nav>

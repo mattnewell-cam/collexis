@@ -2,17 +2,20 @@
 
 import { useState } from 'react';
 import { Communication } from '@/types/communication';
-import { getCategoryDef, getSubtypeLabel } from './categoryConfig';
+import { getCategoryDef, getSenderLabel, getSubtypeLabel } from './categoryConfig';
 
 interface Props {
   comm: Communication;
   onEdit: (comm: Communication) => void;
-  onDelete: (id: string) => void;
+  onDelete: (comm: Communication) => void;
 }
 
 export default function TimelineItem({ comm, onEdit, onDelete }: Props) {
   const [expanded, setExpanded] = useState(false);
   const catDef = getCategoryDef(comm.category);
+  const timelineLabelLines = comm.subtype
+    ? [catDef.label, getSubtypeLabel(comm.subtype)]
+    : catDef.timelineLabelLines ?? [catDef.label];
 
   const dateStr = new Date(comm.date + 'T00:00:00').toLocaleDateString('en-GB', {
     day: 'numeric',
@@ -30,9 +33,16 @@ export default function TimelineItem({ comm, onEdit, onDelete }: Props) {
         {/* Full-height line */}
         <div className="absolute top-0 bottom-0 left-1/2 -translate-x-px w-px bg-gray-200" />
         {/* Badge centred vertically */}
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <span className={`px-2 py-0.5 rounded-full text-sm font-medium text-center leading-snug ${catDef.color}`}>
-            {catDef.label}
+        <div className="absolute inset-0 grid place-items-center z-10">
+          <span className={`inline-grid justify-items-center gap-0.5 px-2.5 py-1 rounded-full text-sm font-medium text-center leading-tight ${comm.subtype ? 'min-w-[6rem]' : ''} ${catDef.timelineBadgeClass ?? ''} ${catDef.color}`}>
+            {timelineLabelLines.map((line, index) => (
+              <span
+                key={line}
+                className={comm.subtype && index === 1 ? 'font-normal italic' : undefined}
+              >
+                {line}
+              </span>
+            ))}
           </span>
         </div>
       </div>
@@ -44,9 +54,9 @@ export default function TimelineItem({ comm, onEdit, onDelete }: Props) {
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 <span className="text-xs font-medium text-gray-500">{dateStr}</span>
-                {comm.subtype && (
+                {comm.sender && (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs text-gray-500 bg-gray-100">
-                    {getSubtypeLabel(comm.subtype)}
+                    {getSenderLabel(comm.sender)}
                   </span>
                 )}
               </div>
@@ -81,7 +91,7 @@ export default function TimelineItem({ comm, onEdit, onDelete }: Props) {
                 </svg>
               </button>
               <button
-                onClick={() => onDelete(comm.id)}
+                onClick={() => onDelete(comm)}
                 className="p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
                 aria-label="Delete"
               >

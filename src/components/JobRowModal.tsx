@@ -1,7 +1,18 @@
 'use client';
 
 import { useEffect, useState, KeyboardEvent } from 'react';
-import { Job } from '@/types/job';
+import { Job, JobStatus } from '@/types/job';
+
+const JOB_STATUSES: JobStatus[] = [
+  'Initial wait',
+  'Polite chase',
+  'Stern chase',
+  'Letter of Action sent',
+  'Awaiting judgment',
+  'Judgment granted',
+  'Paid',
+  'Abandoned',
+];
 
 interface Props {
   job: Job;
@@ -147,20 +158,27 @@ export default function JobRowModal({ job, onClose }: Props) {
           </Field>
         </section>
 
-        {/* Job Description */}
+        {/* Job */}
         <section className="p-6 border-b border-gray-100 space-y-4">
-          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Job Description</h3>
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Job</h3>
           <Field label="Description">
-            <textarea
-              className={inputCls + ' resize-none'}
-              rows={3}
+            <input
+              className={inputCls}
               value={draft.jobDescription}
               onChange={e => set('jobDescription', e.target.value)}
             />
           </Field>
+          <Field label="Job detail">
+            <textarea
+              className={inputCls + ' resize-none'}
+              rows={4}
+              value={draft.jobDetail}
+              onChange={e => set('jobDetail', e.target.value)}
+            />
+          </Field>
           <Field label="Invoice total">
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">£</span>
               <input
                 type="number"
                 className={inputCls + ' pl-6'}
@@ -174,12 +192,31 @@ export default function JobRowModal({ job, onClose }: Props) {
         {/* Job Details */}
         <section className="p-6 border-b border-gray-100 space-y-4">
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Job Details</h3>
+          <Field label="Status">
+            <select
+              className={inputCls}
+              value={draft.status}
+              onChange={e => set('status', e.target.value as JobStatus)}
+            >
+              {JOB_STATUSES.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </Field>
           <Field label="Days overdue">
             <input
               type="number"
               className={inputCls}
               value={draft.daysOverdue}
               onChange={e => set('daysOverdue', parseInt(e.target.value) || 0)}
+            />
+          </Field>
+          <Field label="Amount paid (£)">
+            <input
+              type="number"
+              className={inputCls}
+              value={draft.amountPaid}
+              onChange={e => set('amountPaid', parseFloat(e.target.value) || 0)}
             />
           </Field>
         </section>

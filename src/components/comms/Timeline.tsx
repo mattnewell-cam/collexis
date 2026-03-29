@@ -6,7 +6,7 @@ import TimelineItem from './TimelineItem';
 interface Props {
   comms: Communication[];
   onEdit: (comm: Communication) => void;
-  onDelete: (id: string) => void;
+  onDelete: (comm: Communication) => void;
 }
 
 function formatInterval(days: number): string {
@@ -73,8 +73,8 @@ export default function Timeline({ comms, onEdit, onDelete }: Props) {
           {/* Trailing line + NOW */}
           <div className="flex h-8">
             <div className="w-8 shrink-0" />
-            <div className="w-32 shrink-0 flex justify-center">
-              <div className="w-px h-full bg-gray-200" />
+            <div className="w-32 shrink-0 relative">
+              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-px w-px bg-gray-200" />
             </div>
             <div className="flex-1" />
           </div>

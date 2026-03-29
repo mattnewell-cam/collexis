@@ -1,8 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Communication, CommCategory, CommSubtype } from '@/types/communication';
-import { CATEGORIES, getCategoryDef } from './categoryConfig';
+import { Communication, CommCategory, CommSender, CommSubtype } from '@/types/communication';
+import {
+  CATEGORIES,
+  getCategoryDef,
+  getDefaultSenderForCategory,
+  getSenderLabel,
+} from './categoryConfig';
 
 interface Props {
   comm: Communication | null; // null = new item
@@ -29,12 +34,16 @@ export default function CommModal({ comm, defaultCategory, onSave, onClose }: Pr
 
   const [category, setCategory] = useState<CommCategory>(comm?.category ?? defaultCategory ?? 'chase');
   const [subtype, setSubtype] = useState<CommSubtype | ''>(comm?.subtype ?? '');
+  const [sender, setSender] = useState<CommSender>(
+    comm?.sender ?? getDefaultSenderForCategory(comm?.category ?? defaultCategory ?? 'chase'),
+  );
   const [date, setDate] = useState(comm?.date ?? new Date().toISOString().slice(0, 10));
   const [shortDescription, setShortDescription] = useState(comm?.shortDescription ?? '');
   const [details, setDetails] = useState(comm?.details ?? '');
 
   const catDef = getCategoryDef(category);
   const hasSubtypes = !!catDef.subtypes;
+  const showSenderField = category !== 'due-date';
 
   useEffect(() => {
     const t = requestAnimationFrame(() => setVisible(true));
@@ -53,17 +62,6 @@ export default function CommModal({ comm, defaultCategory, onSave, onClose }: Pr
     };
   }, [onClose]);
 
-  // Reset subtype when category changes
-  useEffect(() => {
-    if (!isNew) return;
-    const def = getCategoryDef(category);
-    if (!def.subtypes) {
-      setSubtype('');
-    } else if (subtype && !def.subtypes.find(s => s.value === subtype)) {
-      setSubtype('');
-    }
-  }, [category, isNew, subtype]);
-
   const wordCount = shortDescription.trim().split(/\s+/).filter(Boolean).length;
 
   const handleSave = () => {
@@ -72,6 +70,7 @@ export default function CommModal({ comm, defaultCategory, onSave, onClose }: Pr
       jobId: comm?.jobId ?? '',
       category,
       subtype: hasSubtypes && subtype ? (subtype as CommSubtype) : undefined,
+      sender: showSenderField ? sender : undefined,
       date,
       shortDescription: shortDescription.trim(),
       details,
@@ -110,7 +109,17 @@ export default function CommModal({ comm, defaultCategory, onSave, onClose }: Pr
             <select
               className={inputCls}
               value={category}
-              onChange={e => setCategory(e.target.value as CommCategory)}
+              onChange={e => {
+                const nextCategory = e.target.value as CommCategory;
+                const nextDef = getCategoryDef(nextCategory);
+                setCategory(nextCategory);
+                if (!nextDef.subtypes || (subtype && !nextDef.subtypes.find(s => s.value === subtype))) {
+                  setSubtype('');
+                }
+                if (isNew) {
+                  setSender(getDefaultSenderForCategory(nextCategory));
+                }
+              }}
               disabled={!isNew}
             >
               {CATEGORIES.map(c => (
@@ -134,6 +143,19 @@ export default function CommModal({ comm, defaultCategory, onSave, onClose }: Pr
                     {s.label}
                   </option>
                 ))}
+              </select>
+            </Field>
+          )}
+
+          {showSenderField && (
+            <Field label="Sender">
+              <select
+                className={inputCls}
+                value={sender}
+                onChange={e => setSender(e.target.value as CommSender)}
+              >
+                <option value="you">{getSenderLabel('you')}</option>
+                <option value="collexis">{getSenderLabel('collexis')}</option>
               </select>
             </Field>
           )}
