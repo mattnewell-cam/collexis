@@ -34,7 +34,7 @@ TIMELINE_PLANNING_PROMPT = (
     "Never use 'due-date' for reminders, overdue notices, follow-ups, or messages/emails that merely mention "
     "an existing due date. Those are usually 'chase', 'conversation', or 'letter' instead. "
     "Use category 'due-date' for the original invoice due date or first payment due notice, "
-    "'collexis-handover' for handover/escalation into Collexis, 'chase' for reminders/follow-ups/"
+    "'handover-letter' for the formal handover into Collexis debt collection, 'chase' for reminders/follow-ups/"
     "voicemails/home visits and obvious payment-chasing emails/messages, "
     "'conversation' for substantive two-way exchanges or calls, 'letter' for formal letters/notices, "
     "and 'other' only when none fit. "

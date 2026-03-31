@@ -31,7 +31,7 @@ ON documents (job_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS timeline_items (
     id TEXT PRIMARY KEY,
     job_id TEXT NOT NULL,
-    category TEXT NOT NULL CHECK (category IN ('due-date', 'collexis-handover', 'chase', 'conversation', 'letter', 'other')),
+    category TEXT NOT NULL CHECK (category IN ('due-date', 'handover-letter', 'chase', 'conversation', 'letter', 'other')),
     subtype TEXT NULL CHECK (subtype IN ('email', 'sms', 'whatsapp', 'facebook', 'voicemail', 'home-visit', 'phone', 'in-person')),
     sender TEXT NULL CHECK (sender IN ('you', 'collexis')),
     date TEXT NOT NULL,
@@ -115,12 +115,21 @@ def migrate_timeline_items(conn: sqlite3.Connection) -> None:
         """
     ).fetchone()
     table_sql = str(row["sql"]) if row and row["sql"] else ""
-    if "'sms'" in table_sql:
+    has_sms = "'sms'" in table_sql
+    has_handover_letter = "'handover-letter'" in table_sql
+    if has_sms and has_handover_letter:
         conn.execute(
             """
             UPDATE timeline_items
             SET subtype = 'sms'
             WHERE subtype = 'text'
+            """
+        )
+        conn.execute(
+            """
+            UPDATE timeline_items
+            SET category = 'handover-letter'
+            WHERE category = 'collexis-handover'
             """
         )
         conn.commit()
@@ -136,7 +145,7 @@ def migrate_timeline_items(conn: sqlite3.Connection) -> None:
         CREATE TABLE timeline_items (
             id TEXT PRIMARY KEY,
             job_id TEXT NOT NULL,
-            category TEXT NOT NULL CHECK (category IN ('due-date', 'collexis-handover', 'chase', 'conversation', 'letter', 'other')),
+            category TEXT NOT NULL CHECK (category IN ('due-date', 'handover-letter', 'chase', 'conversation', 'letter', 'other')),
             subtype TEXT NULL CHECK (subtype IN ('email', 'sms', 'whatsapp', 'facebook', 'voicemail', 'home-visit', 'phone', 'in-person')),
             sender TEXT NULL CHECK (sender IN ('you', 'collexis')),
             date TEXT NOT NULL,
@@ -167,7 +176,7 @@ def migrate_timeline_items(conn: sqlite3.Connection) -> None:
         SELECT
             id,
             job_id,
-            category,
+            CASE WHEN category = 'collexis-handover' THEN 'handover-letter' ELSE category END,
             CASE WHEN subtype = 'text' THEN 'sms' ELSE subtype END,
             sender,
             date,

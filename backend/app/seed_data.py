@@ -15,7 +15,7 @@ TIMELINE_SEED_ITEMS: list[dict[str, str | None]] = [
     {
         "id": "c1-2",
         "job_id": "1",
-        "category": "collexis-handover",
+        "category": "handover-letter",
         "subtype": None,
         "sender": "collexis",
         "date": "2026-02-15",

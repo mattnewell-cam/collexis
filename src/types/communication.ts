@@ -1,6 +1,6 @@
 export type CommCategory =
   | 'due-date'
-  | 'collexis-handover'
+  | 'handover-letter'
   | 'chase'
   | 'conversation'
   | 'letter'

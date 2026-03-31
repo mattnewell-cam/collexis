@@ -10,8 +10,16 @@ function dueDateFromOverdue(daysOverdue: number) {
   return dueDate.toISOString().slice(0, 10);
 }
 
+function withHandoverDefaults(job: Omit<Job, 'handoverDays' | 'plannedHandoverAt'> & Partial<Pick<Job, 'handoverDays' | 'plannedHandoverAt'>>): Job {
+  return {
+    handoverDays: 14,
+    plannedHandoverAt: null,
+    ...job,
+  };
+}
+
 export const mockJobs: Job[] = [
-  {
+  withHandoverDefaults({
     id: '1',
     address: '14 Elmfield Road, Bristol BS3 4DQ',
     jobDescription: 'Emergency burst pipe repair',
@@ -26,8 +34,8 @@ export const mockJobs: Job[] = [
     phones: ['07712 334 891'],
     invoiceDocuments: ['invoice-001.pdf', 'job-report-001.pdf'],
     contextInstructions: 'Client has not responded to two previous emails. Prefers contact by phone in the morning. Insurance claim may be pending - confirm before pursuing legal action.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '2',
     address: '9 Cavendish Place, Leeds LS1 2HG',
     jobDescription: 'Consumer unit upgrade',
@@ -42,8 +50,8 @@ export const mockJobs: Job[] = [
     phones: ['0113 496 0387'],
     invoiceDocuments: ['invoice-002.pdf'],
     contextInstructions: 'Commercial client. Disputes total amount - claims GBP 2,400 was verbally agreed. Signed quote on file confirms GBP 2,800. Do not concede on price.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '3',
     address: '220 Birchwood Lane, Manchester M14 6TW',
     jobDescription: 'Boiler replacement',
@@ -58,8 +66,8 @@ export const mockJobs: Job[] = [
     phones: ['07834 112 203', '07834 112 918'],
     invoiceDocuments: ['invoice-003.pdf', 'gas-safety-cert-003.pdf', 'parts-receipt-003.pdf'],
     contextInstructions: 'Two numbers on file - try the first. Family paid a GBP 500 deposit at time of booking. Polite tone recommended; no previous issues with this client.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '4',
     address: '5 Granby Court, Birmingham B15 2QP',
     jobDescription: 'Full bathroom refit',
@@ -74,8 +82,8 @@ export const mockJobs: Job[] = [
     phones: ['07700 900 093'],
     invoiceDocuments: ['invoice-004.pdf', 'completion-cert-004.pdf'],
     contextInstructions: 'Longest outstanding debt. Letter of Action sent at 45 days with no response. County court claim filed. Do not offer payment extensions.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '5',
     address: '88 Cypress Avenue, Edinburgh EH6 7NB',
     jobDescription: 'Roof gutter replacement',
@@ -90,8 +98,8 @@ export const mockJobs: Job[] = [
     phones: ['0131 555 0461'],
     invoiceDocuments: ['invoice-005.pdf'],
     contextInstructions: 'New client. First overdue notice - friendly reminder tone only. Accounts payable contact is different from the property manager who arranged the job.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '6',
     address: '32 Victoria Terrace, Newcastle NE1 4RQ',
     jobDescription: 'Damp proofing and replastering',
@@ -106,8 +114,8 @@ export const mockJobs: Job[] = [
     phones: ['07921 445 667'],
     invoiceDocuments: ['invoice-006.pdf', 'survey-report-006.pdf'],
     contextInstructions: 'Client paid GBP 1,000 upfront, has since gone quiet. Disputes whether replastering was in scope - it was explicitly listed in the signed contract.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '7',
     address: '7 Marlowe Close, Canterbury CT1 3YH',
     jobDescription: 'Loft conversion structural works',
@@ -122,8 +130,8 @@ export const mockJobs: Job[] = [
     phones: ['01227 830 142'],
     invoiceDocuments: ['invoice-007.pdf', 'structural-drawings-007.pdf', 'completion-007.pdf'],
     contextInstructions: 'County court judgment granted. Client paid 50% deposit; balance of GBP 4,700 outstanding. Enforce judgment if payment not received within 14 days.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '8',
     address: '61 Hazel Grove, Sheffield S7 2DF',
     jobDescription: 'Central heating installation',
@@ -138,8 +146,8 @@ export const mockJobs: Job[] = [
     phones: ['07855 773 210'],
     invoiceDocuments: ['invoice-008.pdf'],
     contextInstructions: 'Client recently changed address - confirm current address before sending any written correspondence. First chase only; maintain a polite tone.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '9',
     address: '3 Rosewood Drive, Norwich NR2 2BH',
     jobDescription: 'Kitchen rewire',
@@ -154,8 +162,8 @@ export const mockJobs: Job[] = [
     phones: ['07788 221 034'],
     invoiceDocuments: ['invoice-009.pdf'],
     contextInstructions: 'Settled in full after second chase. Good client - flag for future work.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '10',
     address: '19 Langton Street, London SW10 0JL',
     jobDescription: 'Flat roof repair',
@@ -170,8 +178,8 @@ export const mockJobs: Job[] = [
     phones: ['020 7946 0512'],
     invoiceDocuments: ['invoice-010.pdf', 'warranty-010.pdf'],
     contextInstructions: 'Paid promptly after letter of action. Retain all documentation in case of future warranty claim.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '11',
     address: '44 Thornton Road, Bradford BD1 2LN',
     jobDescription: 'Drainage clearance and CCTV survey',
@@ -186,8 +194,8 @@ export const mockJobs: Job[] = [
     phones: ['07411 009 312'],
     invoiceDocuments: ['invoice-011.pdf'],
     contextInstructions: 'Client untraceable. Phone disconnected, no response to three letters. Debt too small to pursue through county court. Written off.',
-  },
-  {
+  }),
+  withHandoverDefaults({
     id: '12',
     address: '8 Priory Walk, Oxford OX1 4RT',
     jobDescription: 'Sash window restoration',
@@ -202,7 +210,7 @@ export const mockJobs: Job[] = [
     phones: ['01865 770 088'],
     invoiceDocuments: ['invoice-012.pdf'],
     contextInstructions: 'Paid in full with brief delay due to university payment cycle. No issues - excellent client.',
-  },
+  }),
 ];
 
 export function addJob(name: string, address: string, documents: string[]): Job {
@@ -221,6 +229,8 @@ export function addJob(name: string, address: string, documents: string[]): Job 
     phones: [],
     invoiceDocuments: documents,
     contextInstructions: '',
+    handoverDays: 14,
+    plannedHandoverAt: null,
   };
   mockJobs.push(job);
   return job;

@@ -8,6 +8,7 @@ import TimelineItem from './TimelineItem';
 interface Props {
   comms: Communication[];
   documents: DocumentRecord[];
+  plannedHandoverAt?: string | null;
   onEdit: (comm: Communication) => void;
   onDelete: (comm: Communication) => void;
   onLinkDocument: (comm: Communication, documentId: string) => Promise<void>;
@@ -68,9 +69,28 @@ function NowDivider() {
   );
 }
 
+function HandoverDivider({ label }: { label: string }) {
+  return (
+    <div className="relative flex h-10 items-center">
+      <div className="w-8 shrink-0" />
+      <div className="relative w-32 shrink-0 self-stretch">
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-px bg-teal-200/80" />
+      </div>
+      <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center gap-2">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-200 to-transparent" />
+        <span className="rounded-full border border-teal-200 bg-teal-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-700">
+          {label}
+        </span>
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-200 to-transparent" />
+      </div>
+    </div>
+  );
+}
+
 export default function Timeline({
   comms,
   documents,
+  plannedHandoverAt = null,
   onEdit,
   onDelete,
   onLinkDocument,
@@ -81,6 +101,7 @@ export default function Timeline({
   );
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const handoverDate = plannedHandoverAt ? parseCommunicationDate(plannedHandoverAt) : null;
   const lastComm = sorted.at(-1);
   const daysFromLastActionToNow = lastComm
     && parseCommunicationDate(lastComm.date)
@@ -117,6 +138,12 @@ export default function Timeline({
             const prev = sorted[i - 1];
             const currentDate = parseCommunicationDate(comm.date);
             const previousDate = prev ? parseCommunicationDate(prev.date) : null;
+            const showHandoverDivider = handoverDate
+              && currentDate
+              && (
+                (!previousDate && handoverDate.getTime() <= currentDate.getTime())
+                || (previousDate && previousDate.getTime() < handoverDate.getTime() && handoverDate.getTime() <= currentDate.getTime())
+              );
             const intervalDays = prev
               && currentDate
               && previousDate
@@ -129,6 +156,7 @@ export default function Timeline({
             return (
               <div key={comm.id}>
                 {i > 0 && <Connector days={intervalDays} />}
+                {showHandoverDivider ? <HandoverDivider label="Handover" /> : null}
                 <TimelineItem
                   comm={comm}
                   documents={documents}

@@ -7,7 +7,20 @@ from typing import Callable
 from openai import OpenAI
 
 from .config import Settings
-from .outreach_planning import clean_text, isoformat_local, london_timezone_for, parse_plan_datetime
+from .outreach_planning import (
+    PAYMENT_ACCOUNT_NUMBER,
+    PAYMENT_SORT_CODE,
+    PRE_HANDOVER_PHASE,
+    clean_text,
+    court_fee_amount,
+    court_fee_band_label,
+    isoformat_local,
+    london_timezone_for,
+    outstanding_balance,
+    parse_plan_datetime,
+    phase_for,
+    resolve_planned_handover_at,
+)
 from .schemas import (
     JobSnapshot,
     OutreachPlanGeneratedCommunicationDraftBatch,
@@ -26,14 +39,30 @@ ELIGIBLE_DRAFT_STEP_TYPES: set[OutreachPlanStepType] = {
     "letter-of-claim",
 }
 
-OUTREACH_DRAFTING_PROMPT = (
+PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT = (
     "Draft the outbound communications for the requested outreach-plan steps. Return only the schema. "
     "Use the latest job snapshot, the full past communications timeline, ready document summaries/transcripts, "
     "the full outreach plan, and any already-drafted earlier communications as context. "
     "Treat explicit instructions in context_instructions as binding for tone, channel use, and channel avoidance. "
-    "These drafts are being written for Collexis to send, not for the original business to send directly. "
-    "Write in Collexis' voice, and refer to the client business or invoice issuer by name where that helps. "
-    "Do not impersonate the original business, copy its signature block, or present Collexis as if it were the original sender. "
+    "This is the pre-handover phase. Collexis is acting as outsourced chase support. "
+    "Write in Collexis' voice, but tell the debtor to pay the original creditor or client business, not Collexis. "
+    "Do not include Collexis bank details, direct-to-Collexis payment instructions, warning-letter language, letter-of-claim language, or court-fee wording. "
+    "Draft only the requested target steps. Assume no response to any earlier planned step; if a reply were received, this flow would stop and be replanned. "
+    "Do not invent facts, promises, concessions, legal claims, payment arrangements, or attachments not grounded in the provided context and plan. "
+    "For email steps, provide a subject and a full email body. "
+    "For SMS and WhatsApp steps, provide only the sendable message body and leave subject blank. Keep them concise, natural, and channel-appropriate, without email-style sign-offs. "
+    "For call steps, provide only a short practical call script with no heading label. "
+    "Before submitting, do a final pass to make sure the wording matches the actual scheduled dates and pre-handover stage."
+)
+
+POST_HANDOVER_OUTREACH_DRAFTING_PROMPT = (
+    "Draft the outbound communications for the requested outreach-plan steps. Return only the schema. "
+    "Use the latest job snapshot, the full past communications timeline, ready document summaries/transcripts, "
+    "the full outreach plan, and any already-drafted earlier communications as context. "
+    "Treat explicit instructions in context_instructions as binding for tone, channel use, and channel avoidance. "
+    "This is the post-handover phase. Collexis is now acting as the debt collector. "
+    "Write in Collexis' voice and demand direct payment to Collexis using the supplied sort code and account number. "
+    "Warn that court fees will be added if court action becomes necessary, but do not state that those fees are already due unless the supplied context explicitly says so. "
     "Draft only the requested target steps. Assume no response to any earlier planned step; if a reply were received, this flow would stop and be replanned. "
     "Do not invent facts, promises, concessions, legal claims, payment arrangements, or attachments not grounded in the provided context and plan. "
     "Keep tone and legal wording consistent with the case history and the planned legal timeline. "
@@ -42,8 +71,9 @@ OUTREACH_DRAFTING_PROMPT = (
     "For SMS and WhatsApp steps, provide only the sendable message body and leave subject blank. Keep them concise, natural, and channel-appropriate, without email-style sign-offs. "
     "For call steps, provide only a short practical call script with no heading label. "
     "For warning-letter and letter-of-claim steps, provide the full formal letter text and leave subject blank. "
-    "Before submitting, do a final pass to make sure the wording matches the actual scheduled dates and legal stage."
+    "Before submitting, do a final pass to make sure the wording matches the actual scheduled dates and post-handover stage."
 )
+OUTREACH_DRAFTING_PROMPT = f"{PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT} {POST_HANDOVER_OUTREACH_DRAFTING_PROMPT}"
 
 
 def is_draftable_step_type(step_type: str) -> bool:
@@ -72,6 +102,10 @@ def build_drafting_payload(
     now_local: datetime,
 ) -> dict[str, object]:
     steps_by_id = {str(step["id"]): step for step in plan_steps}
+    planned_handover_at = resolve_planned_handover_at(job_snapshot, now_local)
+    phase = phase_for(now_local, planned_handover_at)
+    balance = outstanding_balance(job_snapshot)
+    fee = court_fee_amount(balance)
 
     return {
         "timezone": "Europe/London",
@@ -90,6 +124,17 @@ def build_drafting_payload(
             "emails": job_snapshot.emails,
             "phones": job_snapshot.phones,
             "context_instructions": job_snapshot.context_instructions,
+            "handover_days": job_snapshot.handover_days,
+            "planned_handover_at": isoformat_local(planned_handover_at),
+        },
+        "debt_recovery_context": {
+            "phase": phase,
+            "planned_handover_at": isoformat_local(planned_handover_at),
+            "outstanding_balance": round(balance, 2),
+            "court_fee_amount": fee,
+            "court_fee_band_label": court_fee_band_label(balance),
+            "payment_sort_code": PAYMENT_SORT_CODE,
+            "payment_account_number": PAYMENT_ACCOUNT_NUMBER,
         },
         "past_communications": [
             {
@@ -169,7 +214,12 @@ def draft_outreach_communications(
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": OUTREACH_DRAFTING_PROMPT},
+                    {
+                        "type": "input_text",
+                        "text": PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+                        if phase_for(now_local, resolve_planned_handover_at(job_snapshot, now_local)) == PRE_HANDOVER_PHASE
+                        else POST_HANDOVER_OUTREACH_DRAFTING_PROMPT,
+                    },
                     {
                         "type": "input_text",
                         "text": json.dumps(

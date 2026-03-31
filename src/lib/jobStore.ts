@@ -51,6 +51,12 @@ function normalizeOptionalString(value: unknown) {
   return typeof value === 'string' ? value : undefined;
 }
 
+function normalizeOptionalInteger(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : undefined;
+}
+
 function normalizeJob(value: unknown): Job | null {
   if (!value || typeof value !== 'object') return null;
 
@@ -76,6 +82,11 @@ function normalizeJob(value: unknown): Job | null {
     invoiceDocuments: normalizeStringArray(record.invoiceDocuments),
     contextInstructions:
       typeof record.contextInstructions === 'string' ? record.contextInstructions : '',
+    handoverDays: normalizeOptionalInteger(record.handoverDays) ?? 14,
+    plannedHandoverAt:
+      typeof record.plannedHandoverAt === 'string' && record.plannedHandoverAt.trim()
+        ? record.plannedHandoverAt
+        : null,
   };
 }
 
@@ -118,6 +129,18 @@ function normalizeJobUpdate(value: unknown): JobUpdatePayload {
 
   const contextInstructions = normalizeOptionalString(record.contextInstructions);
   if (contextInstructions !== undefined) update.contextInstructions = contextInstructions;
+
+  const handoverDays = normalizeOptionalInteger(record.handoverDays);
+  if (handoverDays !== undefined) update.handoverDays = handoverDays;
+
+  if (record.plannedHandoverAt === null) {
+    update.plannedHandoverAt = null;
+  } else {
+    const plannedHandoverAt = normalizeOptionalString(record.plannedHandoverAt);
+    if (plannedHandoverAt !== undefined) {
+      update.plannedHandoverAt = plannedHandoverAt.trim() || null;
+    }
+  }
 
   return update;
 }
@@ -249,6 +272,8 @@ export function createStoredJob(input: CreateJobInput, existingJobs: Job[]): Job
     phones: [],
     invoiceDocuments: input.documents,
     contextInstructions: '',
+    handoverDays: 14,
+    plannedHandoverAt: null,
   };
 }
 

@@ -10,7 +10,7 @@ DocumentStatus = Literal["processing", "ready", "failed"]
 ProcessingProfile = Literal["default", "job-intake"]
 TimelineCategory = Literal[
     "due-date",
-    "collexis-handover",
+    "handover-letter",
     "chase",
     "conversation",
     "letter",
@@ -149,6 +149,8 @@ class JobSnapshot(BaseModel):
     emails: list[str] = Field(default_factory=list)
     phones: list[str] = Field(default_factory=list)
     context_instructions: str = Field(default="")
+    handover_days: int = 14
+    planned_handover_at: str | None = None
 
 
 class OutreachPlanStepDraftResponse(BaseModel):
@@ -246,3 +248,12 @@ class TimelineDecision(BaseModel):
     date: str | None = None
     short_description: str = Field(default="")
     details: str = Field(default="")
+
+
+class DebtRecoveryContext(BaseModel):
+    outstanding_balance: float = 0.0
+    court_fee_amount: float | None = None
+    court_fee_band_label: str = Field(default="")
+    payment_sort_code: str = Field(default="")
+    payment_account_number: str = Field(default="")
+    phase: Literal["pre-handover", "post-handover"] = "pre-handover"

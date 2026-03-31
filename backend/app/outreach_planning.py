@@ -12,13 +12,27 @@ from .config import Settings
 from .schemas import IncomingReplyContext, JobSnapshot, OutreachPlanDraft, OutreachPlanStepType
 
 
-OUTREACH_PLANNING_MODEL = "gpt-5.4"
+OUTREACH_PLANNING_MODEL = "gpt-5.4-mini"
+OUTREACH_PLANNING_REASONING_EFFORT = "low"
 try:
     OUTREACH_TIMEZONE = ZoneInfo("Europe/London")
 except ZoneInfoNotFoundError:
     OUTREACH_TIMEZONE = None
 WRITTEN_STEP_TYPES = {"email", "sms", "whatsapp", "letter-warning", "letter-of-claim"}
 LEGAL_STEP_TYPES = {"letter-warning", "letter-of-claim", "initiate-legal-action"}
+PRE_HANDOVER_PHASE = "pre-handover"
+POST_HANDOVER_PHASE = "post-handover"
+PAYMENT_SORT_CODE = "01 02 03"
+PAYMENT_ACCOUNT_NUMBER = "123456"
+COURT_FEE_BANDS: tuple[tuple[float, float], ...] = (
+    (300.0, 35.0),
+    (500.0, 50.0),
+    (1000.0, 70.0),
+    (1500.0, 80.0),
+    (3000.0, 115.0),
+    (5000.0, 205.0),
+    (10000.0, 455.0),
+)
 WARNING_KEYWORDS = (
     "letter of action",
     "letter before action",
@@ -40,7 +54,7 @@ INITIATED_KEYWORDS = (
     "court claim",
 )
 
-OUTREACH_PLANNING_PROMPT = (
+PRE_HANDOVER_OUTREACH_PLANNING_PROMPT = (
     "Design a debt-recovery outreach plan for this job. Return only the schema. "
     "Plan future communications only. Use the current job snapshot, past communications, "
     "and transcripted document summaries as full context. Do not ask for more information. "
@@ -53,16 +67,43 @@ OUTREACH_PLANNING_PROMPT = (
     "Prefer a judicious cadence: written outreach about every 1-2 days where contact methods exist, "
     "mix WhatsApp, SMS, and email where possible, heavily favor channels already active on the case, "
     "and if the debtor has engaged on WhatsApp, prefer WhatsApp over SMS and email, "
+    "This is the pre-handover phase. Collexis is acting only as outsourced chase support. "
+    "Tell the debtor to pay the original creditor or client business, not Collexis. "
+    "Do not include warning letters, letters of claim, court-action steps, or a handover letter. "
     "Treat each planned step as assuming no response to any earlier planned step, because any reply would break this flow immediately and trigger replanning. "
     "If you use countdown phrasing like 48-hour, 72-hour, five-day, or one-week, it must match the actual scheduled dates in the plan. "
-    "Before submitting your answer, do a final pass to verify every headline is consistent with the real timeline and legal-action date. "
+    "Before submitting your answer, do a final pass to verify every headline is consistent with the real timeline and handover date. "
     "and include at least two calls per week when phone contact is available. "
-    "After roughly two weeks of no reply, include a warning letter that legal action will follow. "
-    "One week later include a formal letter of claim. Thirty days after the letter of claim, "
-    "include an initiate-legal-action step. Include further communications during that intervening period. "
+    "Do not schedule steps in the past. Do not include more than one written outreach on the same day. "
+    "Do not schedule any step on or after the planned handover datetime. "
+    "Use sender 'collexis' for generated outreach-plan steps."
+)
+
+POST_HANDOVER_OUTREACH_PLANNING_PROMPT = (
+    "Design a debt-recovery outreach plan for this job. Return only the schema. "
+    "Plan future communications only. Use the current job snapshot, past communications, "
+    "and transcripted document summaries as full context. Do not ask for more information. "
+    "If incoming_reply_context is provided, treat it as a debtor/client email reply that Collexis has just received in response to Collexis outreach. "
+    "It is not an outbound message from Collexis to the debtor. "
+    "Treat explicit instructions in context_instructions as high-priority operating constraints. "
+    "If context_instructions says to use or avoid a channel, follow that instruction over the default cadence/mixing preference. "
+    "Choose exact future datetimes in the provided Europe/London timezone. "
+    "Keep headlines short, concrete, and operator-friendly. "
+    "This is the post-handover phase. Collexis is now acting as the debt collector. "
+    "Debtor-facing communications should demand direct payment to Collexis using the supplied payment instructions, not payment to the original creditor. "
+    "Warn that court fees will be added if court action becomes necessary, but do not state that court fees are already due unless the supplied context says so. "
+    "Prefer a judicious cadence: written outreach about every 1-2 days where contact methods exist, "
+    "mix WhatsApp, SMS, and email where possible, heavily favor channels already active on the case, "
+    "and if the debtor has engaged on WhatsApp, prefer WhatsApp over SMS and email, "
+    "Treat each planned step as assuming no response to any earlier planned step, because any reply would break this flow immediately and trigger replanning. "
+    "If you use countdown phrasing like 48-hour, 72-hour, five-day, or one-week, it must match the actual scheduled dates in the plan. "
+    "Before submitting your answer, do a final pass to verify every headline is consistent with the real timeline, handover date, and legal-action date. "
+    "Include at least two calls per week when phone contact is available. "
+    "After roughly two weeks from handover with no resolution, legal escalation may begin. "
     "Do not schedule steps in the past. Do not include more than one written outreach on the same day. "
     "Use sender 'collexis' for generated outreach-plan steps."
 )
+OUTREACH_PLANNING_PROMPT = f"{PRE_HANDOVER_OUTREACH_PLANNING_PROMPT} {POST_HANDOVER_OUTREACH_PLANNING_PROMPT}"
 
 
 def limit_words(text: str, max_words: int) -> str:
@@ -74,6 +115,34 @@ def limit_words(text: str, max_words: int) -> str:
 
 def clean_text(value: object) -> str:
     return str(value or "").strip()
+
+
+def outstanding_balance(job_snapshot: JobSnapshot) -> float:
+    price = float(job_snapshot.price or 0.0)
+    amount_paid = float(job_snapshot.amount_paid or 0.0)
+    return max(price - amount_paid, 0.0)
+
+
+def court_fee_amount(balance: float) -> float | None:
+    if balance <= 0:
+        return None
+    for upper_bound, fee in COURT_FEE_BANDS:
+        if balance <= upper_bound:
+            return fee
+    return None
+
+
+def court_fee_band_label(balance: float) -> str:
+    if balance <= 0:
+        return ""
+    lower_bound = 0.0
+    for upper_bound, _fee in COURT_FEE_BANDS:
+        if balance <= upper_bound:
+            if lower_bound == 0.0:
+                return f"Up to GBP {upper_bound:,.0f}"
+            return f"GBP {lower_bound + 0.01:,.2f} to GBP {upper_bound:,.0f}"
+        lower_bound = upper_bound
+    return "Above GBP 10,000"
 
 
 def last_sunday(year: int, month: int) -> date:
@@ -154,6 +223,32 @@ def date_gap_days(earlier: datetime, later: datetime) -> int:
     return (later.date() - earlier.date()).days
 
 
+def resolve_planned_handover_at(job_snapshot: JobSnapshot, now_local: datetime) -> datetime:
+    planned = parse_plan_datetime(clean_text(job_snapshot.planned_handover_at))
+    if planned is not None:
+        return planned
+    days = max(int(job_snapshot.handover_days or 14), 0)
+    return (now_local + timedelta(days=days)).replace(second=0, microsecond=0)
+
+
+def phase_for(now_local: datetime, planned_handover_at: datetime) -> str:
+    return POST_HANDOVER_PHASE if now_local >= planned_handover_at else PRE_HANDOVER_PHASE
+
+
+def build_debt_recovery_context(job_snapshot: JobSnapshot, planned_handover_at: datetime, phase: str) -> dict[str, object]:
+    balance = outstanding_balance(job_snapshot)
+    fee = court_fee_amount(balance)
+    return {
+        "phase": phase,
+        "planned_handover_at": isoformat_local(planned_handover_at),
+        "outstanding_balance": round(balance, 2),
+        "court_fee_amount": fee,
+        "court_fee_band_label": court_fee_band_label(balance),
+        "payment_sort_code": PAYMENT_SORT_CODE,
+        "payment_account_number": PAYMENT_ACCOUNT_NUMBER,
+    }
+
+
 def detect_default_sender(timeline_items: list[dict[str, object]]) -> str:
     return "collexis"
 
@@ -179,20 +274,12 @@ def latest_timeline_date(
     return max(resolved) if resolved else None
 
 
-def detect_legal_state(
-    timeline_items: list[dict[str, object]],
-    *,
-    status: str,
-) -> dict[str, datetime | None]:
-    normalized_status = status.strip().lower()
+def detect_legal_state(timeline_items: list[dict[str, object]]) -> dict[str, datetime | None]:
 
     initiated_date = latest_timeline_date(
         timeline_items,
         lambda item: timeline_matches_keywords(item, INITIATED_KEYWORDS),
     )
-    if normalized_status in {"awaiting judgment", "judgment granted"} and initiated_date is None:
-        initiated_date = latest_timeline_date(timeline_items, lambda _item: True) or datetime.now(london_timezone_for(datetime.now()))
-
     claim_date = latest_timeline_date(
         timeline_items,
         lambda item: timeline_matches_keywords(item, CLAIM_KEYWORDS),
@@ -204,8 +291,6 @@ def detect_legal_state(
         timeline_items,
         lambda item: str(item.get("category")) == "letter" and timeline_matches_keywords(item, WARNING_KEYWORDS),
     )
-    if normalized_status == "letter of action sent" and warning_date is None:
-        warning_date = latest_timeline_date(timeline_items, lambda item: str(item.get("category")) == "letter")
     if claim_date is not None and warning_date is None:
         warning_date = claim_date - timedelta(days=7)
 
@@ -220,9 +305,9 @@ def build_legal_schedule(
     now_local: datetime,
     timeline_items: list[dict[str, object]],
     *,
-    status: str,
+    planned_handover_at: datetime,
 ) -> list[tuple[OutreachPlanStepType, datetime]]:
-    legal_state = detect_legal_state(timeline_items, status=status)
+    legal_state = detect_legal_state(timeline_items)
     warning_date = legal_state["warning_date"]
     claim_date = legal_state["claim_date"]
     initiated_date = legal_state["initiated_date"]
@@ -246,7 +331,7 @@ def build_legal_schedule(
         schedule.append(("initiate-legal-action", combine_local(claim_dt + timedelta(days=30), hour=9, minute=0)))
         return schedule
 
-    warning_dt = combine_local(now_local + timedelta(days=14), hour=9, minute=0)
+    warning_dt = combine_local(max(now_local + timedelta(days=1), planned_handover_at + timedelta(days=14)), hour=9, minute=0)
     claim_dt = combine_local(warning_dt + timedelta(days=7), hour=9, minute=0)
     schedule.append(("letter-warning", warning_dt))
     schedule.append(("letter-of-claim", claim_dt))
@@ -261,7 +346,10 @@ def build_generation_payload(
     documents: list[dict[str, object]],
     incoming_reply_context: IncomingReplyContext | None,
     now_local: datetime,
+    planned_handover_at: datetime,
+    phase: str,
 ) -> dict[str, object]:
+    debt_context = build_debt_recovery_context(job_snapshot, planned_handover_at, phase)
     return {
         "timezone": "Europe/London",
         "current_datetime": isoformat_local(now_local),
@@ -279,7 +367,10 @@ def build_generation_payload(
             "emails": job_snapshot.emails,
             "phones": job_snapshot.phones,
             "context_instructions": job_snapshot.context_instructions,
+            "handover_days": job_snapshot.handover_days,
+            "planned_handover_at": isoformat_local(planned_handover_at),
         },
+        "debt_recovery_context": debt_context,
         "past_communications": [
             {
                 "id": str(item.get("id")),
@@ -326,6 +417,8 @@ def draft_outreach_plan(
     incoming_reply_context: IncomingReplyContext | None,
     settings: Settings,
     now_local: datetime,
+    planned_handover_at: datetime,
+    phase: str,
 ) -> OutreachPlanDraft:
     if not settings.openai_api_key:
         raise RuntimeError("OPENAI_API_KEY is not configured.")
@@ -333,12 +426,12 @@ def draft_outreach_plan(
     client = OpenAI(api_key=settings.openai_api_key)
     response = client.responses.parse(
         model=OUTREACH_PLANNING_MODEL,
-        reasoning={"effort": "medium"},
+        reasoning={"effort": OUTREACH_PLANNING_REASONING_EFFORT},
         input=[
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": OUTREACH_PLANNING_PROMPT},
+                    {"type": "input_text", "text": PRE_HANDOVER_OUTREACH_PLANNING_PROMPT if phase == PRE_HANDOVER_PHASE else POST_HANDOVER_OUTREACH_PLANNING_PROMPT},
                     {
                         "type": "input_text",
                         "text": json.dumps(
@@ -348,6 +441,8 @@ def draft_outreach_plan(
                                 documents=documents,
                                 incoming_reply_context=incoming_reply_context,
                                 now_local=now_local,
+                                planned_handover_at=planned_handover_at,
+                                phase=phase,
                             ),
                             ensure_ascii=True,
                         ),
@@ -630,7 +725,9 @@ def generate_outreach_plan(
     now_local = resolved_now.replace(second=0, microsecond=0)
     default_sender = detect_default_sender(timeline_items)
     prefers_morning = "morning" in job_snapshot.context_instructions.lower()
-    legal_schedule = build_legal_schedule(now_local, timeline_items, status=job_snapshot.status)
+    planned_handover_at = resolve_planned_handover_at(job_snapshot, now_local)
+    phase = phase_for(now_local, planned_handover_at)
+    legal_schedule = build_legal_schedule(now_local, timeline_items, planned_handover_at=planned_handover_at) if phase == POST_HANDOVER_PHASE else []
     draft = (drafter or draft_outreach_plan)(
         job_snapshot=job_snapshot,
         timeline_items=timeline_items,
@@ -638,6 +735,8 @@ def generate_outreach_plan(
         incoming_reply_context=incoming_reply_context,
         settings=settings,
         now_local=now_local,
+        planned_handover_at=planned_handover_at,
+        phase=phase,
     )
 
     steps = normalize_model_steps(
@@ -646,11 +745,20 @@ def generate_outreach_plan(
         default_sender=default_sender,
         prefers_morning=prefers_morning,
     )
-    steps = [step for step in steps if step["type"] not in LEGAL_STEP_TYPES]
-    ensure_legal_steps(steps, schedule=legal_schedule, default_sender=default_sender)
+    if phase == PRE_HANDOVER_PHASE:
+        steps = [
+            step for step in steps
+            if step["type"] not in LEGAL_STEP_TYPES and step["scheduled_for"] < planned_handover_at
+        ]
+    else:
+        steps = [step for step in steps if step["type"] not in LEGAL_STEP_TYPES]
+        ensure_legal_steps(steps, schedule=legal_schedule, default_sender=default_sender)
 
-    latest_step = max((step["scheduled_for"] for step in steps), default=now_local + timedelta(days=14))
-    horizon_end = latest_step if latest_step > now_local else now_local + timedelta(days=14)
+    latest_step = max((step["scheduled_for"] for step in steps), default=(planned_handover_at if phase == PRE_HANDOVER_PHASE else now_local + timedelta(days=14)))
+    if phase == PRE_HANDOVER_PHASE:
+        horizon_end = planned_handover_at
+    else:
+        horizon_end = latest_step if latest_step > now_local else max(now_local + timedelta(days=14), planned_handover_at + timedelta(days=14))
 
     ensure_written_cadence(
         steps,
@@ -671,4 +779,6 @@ def generate_outreach_plan(
 
     normalized = normalize_written_days(steps, prefers_morning=prefers_morning)
     normalized = [step for step in normalized if step["scheduled_for"] > now_local]
+    if phase == PRE_HANDOVER_PHASE:
+        normalized = [step for step in normalized if step["scheduled_for"] < planned_handover_at]
     return finalize_steps(normalized, job_id=job_snapshot.id)

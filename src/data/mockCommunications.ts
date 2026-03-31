@@ -14,7 +14,7 @@ export const mockCommunications: Record<string, Communication[]> = {
     {
       id: 'c1-2',
       jobId: '1',
-      category: 'collexis-handover',
+      category: 'handover-letter',
       sender: 'collexis',
       date: '2026-02-15',
       shortDescription: 'Case handed to Collexis',

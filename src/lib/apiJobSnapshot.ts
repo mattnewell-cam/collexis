@@ -15,5 +15,7 @@ export function toApiJobSnapshot(job: Job) {
     emails: job.emails,
     phones: job.phones,
     context_instructions: job.contextInstructions,
+    handover_days: job.handoverDays,
+    planned_handover_at: job.plannedHandoverAt,
   };
 }

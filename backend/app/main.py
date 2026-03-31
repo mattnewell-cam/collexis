@@ -113,7 +113,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         repository = DocumentRepository(app.state.settings)
         generator: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_generator
-        draft_ensurer: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_draft_ensurer
         timeline_items = repository.list_timeline_for_job(job_id)
         ready_documents = [
             document
@@ -128,17 +127,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings=app.state.settings,
         )
         repository.replace_outreach_plan_steps(job_id, steps=planned_steps)
-        stored_steps = repository.list_outreach_plan_steps(job_id)
-        drafts_to_create = draft_ensurer(
-            job_snapshot=payload.job_snapshot,
-            timeline_items=timeline_items,
-            documents=ready_documents,
-            plan_steps=stored_steps,
-            existing_drafts=[],
-            settings=app.state.settings,
-        )
-        if drafts_to_create:
-            repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
         enriched_steps = repository.list_outreach_plan_steps_with_drafts(job_id)
         return [
             OutreachPlanStepResponse.model_validate(step)
@@ -191,7 +179,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if str(document.get("status")) == "ready"
         ]
         generator: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_generator
-        draft_ensurer: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_draft_ensurer
         planned_steps = generator(
             job_snapshot=payload.job_snapshot,
             timeline_items=timeline_items,
@@ -200,17 +187,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings=app.state.settings,
         )
         repository.replace_outreach_plan_steps(job_id, steps=planned_steps)
-        stored_steps = repository.list_outreach_plan_steps(job_id)
-        drafts_to_create = draft_ensurer(
-            job_snapshot=payload.job_snapshot,
-            timeline_items=timeline_items,
-            documents=ready_documents,
-            plan_steps=stored_steps,
-            existing_drafts=[],
-            settings=app.state.settings,
-        )
-        if drafts_to_create:
-            repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
 
         return {
             "timeline_item": TimelineItemResponse.model_validate(timeline_item).model_dump(mode="json"),

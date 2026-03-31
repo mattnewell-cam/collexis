@@ -51,6 +51,8 @@ def build_job_snapshot(**overrides: object) -> JobSnapshot:
         "emails": ["p.whitmore@btinternet.com"],
         "phones": ["07712334891"],
         "context_instructions": "Prefers contact by phone in the morning.",
+        "handover_days": 14,
+        "planned_handover_at": None,
     }
     payload.update(overrides)
     return JobSnapshot.model_validate(payload)
@@ -132,6 +134,55 @@ def test_repository_can_store_whatsapp_outreach_plan_steps(tmp_path: Path) -> No
     )
 
     assert [step["type"] for step in stored] == ["whatsapp"]
+
+
+def test_replace_outreach_plan_steps_clears_stale_drafts(tmp_path: Path) -> None:
+    settings = build_settings(tmp_path)
+    init_db(settings)
+    repository = DocumentRepository(settings)
+    repository.replace_outreach_plan_steps(
+        "job-123",
+        steps=[
+            {
+                "id": "step-1",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Email follow-up",
+                "scheduled_for": "2026-04-01T11:00:00+01:00",
+                "created_at": "2026-03-30T10:00:00+01:00",
+                "updated_at": "2026-03-30T10:00:00+01:00",
+            }
+        ],
+    )
+    repository.create_outreach_plan_drafts(
+        "job-123",
+        drafts=[
+            {
+                "plan_step_id": "step-1",
+                "subject": "Initial subject",
+                "body": "Initial body",
+            }
+        ],
+    )
+
+    repository.replace_outreach_plan_steps(
+        "job-123",
+        steps=[
+            {
+                "id": "step-2",
+                "job_id": "job-123",
+                "type": "call",
+                "sender": "collexis",
+                "headline": "Call follow-up",
+                "scheduled_for": "2026-04-02T09:30:00+01:00",
+                "created_at": "2026-03-30T11:00:00+01:00",
+                "updated_at": "2026-03-30T11:00:00+01:00",
+            }
+        ],
+    )
+
+    assert repository.list_outreach_plan_drafts("job-123") == []
 
 
 def test_init_db_migrates_outreach_plan_table_to_allow_whatsapp(tmp_path: Path) -> None:
@@ -230,6 +281,12 @@ def test_init_db_migrates_text_channels_to_sms(tmp_path: Path) -> None:
                 'legacy-sms', 'job-123', 'chase', 'text', 'you', '2026-03-11', 'SMS reminder', 'Legacy SMS chase.', '2026-03-30T10:00:00+01:00', '2026-03-30T10:00:00+01:00'
             );
 
+            INSERT INTO timeline_items (
+                id, job_id, category, subtype, sender, date, short_description, details, created_at, updated_at
+            ) VALUES (
+                'legacy-handover', 'job-123', 'collexis-handover', NULL, 'collexis', '2026-03-12', 'Legacy handover', 'Legacy handover marker.', '2026-03-30T10:00:00+01:00', '2026-03-30T10:00:00+01:00'
+            );
+
             INSERT INTO outreach_plan_steps (
                 id, job_id, type, sender, headline, scheduled_for, created_at, updated_at
             ) VALUES (
@@ -246,6 +303,7 @@ def test_init_db_migrates_text_channels_to_sms(tmp_path: Path) -> None:
     plan_steps = repository.list_outreach_plan_steps("job-123")
 
     assert timeline_items[0]["subtype"] == "sms"
+    assert any(item["category"] == "handover-letter" for item in timeline_items)
     assert plan_steps[0]["type"] == "sms"
 
 
@@ -299,11 +357,11 @@ def test_repository_can_create_update_and_join_outreach_plan_drafts(tmp_path: Pa
 
 def test_generate_outreach_plan_enforces_legal_offsets_and_cadence() -> None:
     now = datetime.fromisoformat("2026-03-30T08:00:00+01:00")
-    job_snapshot = build_job_snapshot()
+    job_snapshot = build_job_snapshot(planned_handover_at="2026-03-10T09:00:00+00:00")
     timeline_items = [
         {
             "id": "handover",
-            "category": "collexis-handover",
+            "category": "handover-letter",
             "subtype": None,
             "sender": "collexis",
             "date": "2026-03-10",
@@ -351,9 +409,39 @@ def test_generate_outreach_plan_enforces_legal_offsets_and_cadence() -> None:
     warning_step = next(step for step in plan if step["type"] == "letter-warning")
     claim_step = next(step for step in plan if step["type"] == "letter-of-claim")
     initiate_step = next(step for step in plan if step["type"] == "initiate-legal-action")
-    assert warning_step["scheduled_for"].startswith("2026-04-13T09:00")
-    assert claim_step["scheduled_for"].startswith("2026-04-20T09:00")
-    assert initiate_step["scheduled_for"].startswith("2026-05-20T09:00")
+    assert warning_step["scheduled_for"].startswith("2026-03-31T09:00")
+    assert claim_step["scheduled_for"].startswith("2026-04-07T09:00")
+    assert initiate_step["scheduled_for"].startswith("2026-05-07T09:00")
+
+
+def test_generate_outreach_plan_keeps_pre_handover_steps_before_boundary() -> None:
+    handover_at = "2026-04-05T09:00:00+01:00"
+    plan = generate_outreach_plan(
+        job_snapshot=build_job_snapshot(planned_handover_at=handover_at),
+        timeline_items=[],
+        documents=[],
+        settings=build_settings(Path.cwd()),
+        now=datetime.fromisoformat("2026-03-30T08:00:00+01:00"),
+        drafter=lambda **_kwargs: build_draft(
+            OutreachPlanDraftStep(
+                type="email",
+                sender="collexis",
+                headline="Email reminder to settle",
+                scheduled_for="2026-04-01T11:00:00+01:00",
+            ),
+            OutreachPlanDraftStep(
+                type="letter-warning",
+                sender="collexis",
+                headline="Final warning before legal action",
+                scheduled_for="2026-04-06T09:00:00+01:00",
+            ),
+        ),
+    )
+
+    assert all(step["type"] != "letter-warning" for step in plan)
+    assert all(step["type"] != "letter-of-claim" for step in plan)
+    assert all(step["type"] != "initiate-legal-action" for step in plan)
+    assert all(step["scheduled_for"] < handover_at for step in plan)
 
 
 def test_generate_outreach_plan_skips_calls_without_phone() -> None:
@@ -411,7 +499,7 @@ def test_outreach_planning_prompt_marks_context_instructions_as_high_priority() 
 
 def test_generate_outreach_plan_uses_existing_warning_before_claim() -> None:
     plan = generate_outreach_plan(
-        job_snapshot=build_job_snapshot(status="Letter of Action sent"),
+        job_snapshot=build_job_snapshot(status="Letter of Action sent", planned_handover_at="2026-03-10T09:00:00+00:00"),
         timeline_items=[
             {
                 "id": "warning",
@@ -661,13 +749,6 @@ def test_outreach_plan_api_uses_latest_job_snapshot_and_ready_documents_only(tmp
 
     client.app.state.outreach_plan_generator = fake_generator
 
-    def fake_draft_ensurer(**kwargs: object) -> list[dict[str, object]]:
-        captured["draft_job_snapshot"] = kwargs["job_snapshot"]
-        captured["draft_documents"] = kwargs["documents"]
-        return []
-
-    client.app.state.outreach_plan_draft_ensurer = fake_draft_ensurer
-
     response = client.post(
         "/jobs/job-123/outreach-plan/generate",
         json={
@@ -692,10 +773,9 @@ def test_outreach_plan_api_uses_latest_job_snapshot_and_ready_documents_only(tmp
     assert response.status_code == 200
     body = response.json()
     assert body[0]["headline"] == "Email follow-up"
+    assert body[0]["draft"] is None
     assert captured["job_snapshot"].name == "Updated Name"
-    assert captured["draft_job_snapshot"].name == "Updated Name"
     assert [document["id"] for document in captured["documents"] if document["status"] == "ready"] == [ready_document["id"]]
-    assert [document["id"] for document in captured["draft_documents"] if document["status"] == "ready"] == [ready_document["id"]]
 
 
 def test_outreach_plan_api_regenerate_replaces_existing_steps(tmp_path: Path) -> None:
@@ -741,7 +821,7 @@ def test_outreach_plan_api_regenerate_replaces_existing_steps(tmp_path: Path) ->
     assert listed.json()[0]["type"] == "call"
 
 
-def test_outreach_plan_generate_api_returns_first_week_drafts(tmp_path: Path) -> None:
+def test_outreach_plan_generate_api_returns_plan_without_creating_drafts(tmp_path: Path) -> None:
     client, _settings = build_client(tmp_path)
     client.app.state.outreach_plan_generator = lambda **_kwargs: [
         {
@@ -755,14 +835,6 @@ def test_outreach_plan_generate_api_returns_first_week_drafts(tmp_path: Path) ->
             "updated_at": "2026-03-30T10:00:00+01:00",
         }
     ]
-    client.app.state.outreach_plan_draft_ensurer = lambda **_kwargs: [
-        {
-            "plan_step_id": "generated-1",
-            "subject": "Payment reminder",
-            "body": "Please arrange payment.",
-            "is_user_edited": False,
-        }
-    ]
 
     response = client.post(
         "/jobs/job-123/outreach-plan/generate",
@@ -771,8 +843,7 @@ def test_outreach_plan_generate_api_returns_first_week_drafts(tmp_path: Path) ->
 
     assert response.status_code == 200
     body = response.json()
-    assert body[0]["draft"]["subject"] == "Payment reminder"
-    assert body[0]["draft"]["body"] == "Please arrange payment."
+    assert body[0]["draft"] is None
 
 
 def test_inbound_email_reply_api_records_reply_and_replans(tmp_path: Path) -> None:

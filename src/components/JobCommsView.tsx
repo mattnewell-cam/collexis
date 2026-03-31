@@ -25,6 +25,15 @@ import Timeline from './comms/Timeline';
 import PostNowTimeline from './comms/PostNowTimeline';
 
 const deleteUndoWindowMs = 6000;
+const defaultHandoverDays = 14;
+const draftablePlanStepTypes = new Set<PostNowStep['type']>([
+  'email',
+  'sms',
+  'whatsapp',
+  'call',
+  'letter-warning',
+  'letter-of-claim',
+]);
 
 interface PendingUndoDelete {
   comm: Communication;
@@ -34,10 +43,42 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function sanitizeHandoverDays(value: string, fallback = defaultHandoverDays) {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(0, parsed);
+}
+
+function isPastHandover(plannedHandoverAt: string | null) {
+  if (!plannedHandoverAt) return false;
+  const parsed = new Date(plannedHandoverAt);
+  return !Number.isNaN(parsed.getTime()) && parsed.getTime() <= Date.now();
+}
+
+function nextPlannedHandoverAt(currentJob: Job, handoverDays: number) {
+  if (currentJob.plannedHandoverAt && isPastHandover(currentJob.plannedHandoverAt)) {
+    return currentJob.plannedHandoverAt;
+  }
+  return new Date(Date.now() + handoverDays * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function planNeedsDraftRefresh(steps: PostNowStep[]) {
+  const now = Date.now();
+  const draftWindowEnd = now + (7 * 24 * 60 * 60 * 1000);
+
+  return steps.some(step => {
+    if (!draftablePlanStepTypes.has(step.type) || step.draft) return false;
+    const scheduledFor = new Date(step.scheduledFor);
+    const scheduledTime = scheduledFor.getTime();
+    return !Number.isNaN(scheduledTime) && scheduledTime > now && scheduledTime <= draftWindowEnd;
+  });
+}
+
 export default function JobCommsView({ job }: { job: Job }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [jobState, setJobState] = useState<Job>(job);
   const [comms, setComms] = useState<Communication[]>([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
@@ -45,21 +86,33 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [postNowSteps, setPostNowSteps] = useState<PostNowStep[]>([]);
   const [planLoading, setPlanLoading] = useState(true);
   const [planGenerating, setPlanGenerating] = useState(false);
+  const [savingHandoverDays, setSavingHandoverDays] = useState(false);
   const [savingDraftId, setSavingDraftId] = useState<string | null>(null);
   const [editingComm, setEditingComm] = useState<Communication | null>(null);
   const [deleteConfirmComm, setDeleteConfirmComm] = useState<Communication | null>(null);
   const [showRegeneratePlanConfirm, setShowRegeneratePlanConfirm] = useState(false);
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null);
   const [showTimelineNotice, setShowTimelineNotice] = useState(searchParams.get('notice') === 'timeline-review');
+  const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
   const deleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeJobIdRef = useRef(job.id);
 
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
   const hasGeneratedPlan = postNowSteps.length > 0;
 
+  useEffect(() => {
+    setJobState(job);
+    setHandoverDaysInput(String(job.handoverDays ?? defaultHandoverDays));
+  }, [job]);
+
+  useEffect(() => {
+    activeJobIdRef.current = jobState.id;
+  }, [jobState.id]);
+
   const loadComms = useCallback(async () => {
     setLoading(true);
     try {
-      const nextComms = await fetchTimelineItems(job.id);
+      const nextComms = await fetchTimelineItems(jobState.id);
       setComms(nextComms);
       setPageError(null);
     } catch (error) {
@@ -68,42 +121,50 @@ export default function JobCommsView({ job }: { job: Job }) {
     } finally {
       setLoading(false);
     }
-  }, [job.id]);
+  }, [jobState.id]);
 
   const loadDocuments = useCallback(async () => {
     try {
-      const nextDocuments = await fetchJobDocuments(job.id);
+      const nextDocuments = await fetchJobDocuments(jobState.id);
       setDocuments(nextDocuments);
     } catch (error) {
       setPageError(errorMessage(error, 'Could not load documents.'));
       setDocuments([]);
     }
-  }, [job.id]);
+  }, [jobState.id]);
+
+  const refreshPlanDrafts = useCallback(async (draftJob: Job) => {
+    try {
+      const nextPlan = await ensureOutreachPlanDrafts(draftJob);
+      if (activeJobIdRef.current !== draftJob.id) return;
+      setPostNowSteps(nextPlan);
+    } catch (error) {
+      if (activeJobIdRef.current !== draftJob.id) return;
+      setPageError(errorMessage(error, 'Could not refresh outreach plan drafts.'));
+    }
+  }, []);
 
   const loadPlan = useCallback(async () => {
     setPlanLoading(true);
     try {
-      const existingPlan = await fetchOutreachPlan(job.id);
-      if (existingPlan.length === 0) {
-        setPostNowSteps([]);
-        setPageError(null);
-        return;
-      }
+      const existingPlan = await fetchOutreachPlan(jobState.id);
+      if (activeJobIdRef.current !== jobState.id) return;
+
+      setPageError(null);
       setPostNowSteps(existingPlan);
-      try {
-        const nextPlan = await ensureOutreachPlanDrafts(job);
-        setPostNowSteps(nextPlan);
-        setPageError(null);
-      } catch (error) {
-        setPageError(errorMessage(error, 'Could not refresh outreach plan drafts.'));
+
+      if (planNeedsDraftRefresh(existingPlan)) {
+        void refreshPlanDrafts(jobState);
       }
     } catch (error) {
+      if (activeJobIdRef.current !== jobState.id) return;
       setPageError(errorMessage(error, 'Could not load outreach plan.'));
       setPostNowSteps([]);
     } finally {
+      if (activeJobIdRef.current !== jobState.id) return;
       setPlanLoading(false);
     }
-  }, [job]);
+  }, [jobState, refreshPlanDrafts]);
 
   useEffect(() => {
     setEditingComm(null);
@@ -117,7 +178,7 @@ export default function JobCommsView({ job }: { job: Job }) {
     void loadComms();
     void loadDocuments();
     void loadPlan();
-  }, [job.id, loadComms, loadDocuments, loadPlan]);
+  }, [jobState.id, loadComms, loadDocuments, loadPlan]);
 
   useEffect(() => {
     return () => {
@@ -157,12 +218,44 @@ export default function JobCommsView({ job }: { job: Job }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [showRegeneratePlanConfirm]);
 
+  const persistJobPatch = useCallback(async (payload: Partial<Job>) => {
+    const response = await fetch(`/api/jobs/${jobState.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      throw new Error('Could not save handover settings.');
+    }
+    const result = await response.json() as { job: Job };
+    setJobState(result.job);
+    return result.job;
+  }, [jobState.id]);
+
+  const commitHandoverDays = useCallback(async () => {
+    const nextDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
+    setHandoverDaysInput(String(nextDays));
+    if (nextDays === jobState.handoverDays) return jobState;
+
+    setSavingHandoverDays(true);
+    try {
+      const updatedJob = await persistJobPatch({ handoverDays: nextDays });
+      setPageError(null);
+      return updatedJob;
+    } catch (error) {
+      setPageError(errorMessage(error, 'Could not save handover settings.'));
+      throw error;
+    } finally {
+      setSavingHandoverDays(false);
+    }
+  }, [handoverDaysInput, jobState, persistJobPatch]);
+
   const handleSave = useCallback(async (comm: Communication) => {
-    const updated = { ...comm, jobId: job.id };
+    const updated = { ...comm, jobId: jobState.id };
     try {
       const saved = editingComm
         ? await updateTimelineItem(updated)
-        : await createTimelineItem(job.id, updated);
+        : await createTimelineItem(jobState.id, updated);
 
       setComms(prev => {
         const index = prev.findIndex(candidate => candidate.id === saved.id);
@@ -178,7 +271,7 @@ export default function JobCommsView({ job }: { job: Job }) {
     } catch (error) {
       setPageError(errorMessage(error, 'Could not save communication.'));
     }
-  }, [editingComm, job.id]);
+  }, [editingComm, jobState.id]);
 
   const removeComm = (id: string) => {
     setComms(prev => prev.filter(comm => comm.id !== id));
@@ -224,8 +317,30 @@ export default function JobCommsView({ job }: { job: Job }) {
   const handleGeneratePlan = useCallback(async () => {
     setPlanGenerating(true);
     try {
-      const generatedPlan = await generateOutreachPlan(job);
+      const normalizedDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
+      let nextJob = jobState;
+      const patch: Partial<Job> = {};
+
+      if (normalizedDays !== jobState.handoverDays) {
+        patch.handoverDays = normalizedDays;
+      }
+
+      const nextHandoverAt = nextPlannedHandoverAt(jobState, normalizedDays);
+      if (nextHandoverAt !== jobState.plannedHandoverAt) {
+        patch.plannedHandoverAt = nextHandoverAt;
+      }
+
+      if (Object.keys(patch).length > 0) {
+        nextJob = await persistJobPatch(patch);
+      }
+
+      setHandoverDaysInput(String(nextJob.handoverDays));
+      const generatedPlan = await generateOutreachPlan(nextJob);
+      if (activeJobIdRef.current !== nextJob.id) return;
       setPostNowSteps(generatedPlan);
+      if (planNeedsDraftRefresh(generatedPlan)) {
+        void refreshPlanDrafts(nextJob);
+      }
       setShowRegeneratePlanConfirm(false);
       setPageError(null);
     } catch (error) {
@@ -234,7 +349,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [job]);
+  }, [handoverDaysInput, jobState, persistJobPatch, refreshPlanDrafts]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -259,7 +374,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   const handleUploadDocuments = useCallback(async (comm: Communication, files: FileList) => {
     try {
       const uploadedDocuments = await Promise.all(
-        Array.from(files).map(file => uploadJobDocument(job.id, file, comm.id)),
+        Array.from(files).map(file => uploadJobDocument(jobState.id, file, comm.id)),
       );
 
       setDocuments(prev => {
@@ -281,7 +396,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPageError(message);
       throw new Error(message);
     }
-  }, [job.id]);
+  }, [jobState.id]);
 
   const handleSavePlanDraft = useCallback(async (draftId: string, payload: { subject?: string; body: string }): Promise<PostNowDraft> => {
     setSavingDraftId(draftId);
@@ -316,8 +431,8 @@ export default function JobCommsView({ job }: { job: Job }) {
       <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 64px)' }}>
         <aside className="w-[22rem] shrink-0 overflow-y-auto border-r border-gray-200 bg-gray-50">
           <CommForm
-            key={editingComm?.id ?? `new-${job.id}`}
-            job={job}
+            key={editingComm?.id ?? `new-${jobState.id}`}
+            job={jobState}
             editing={editingComm}
             onSave={comm => { void handleSave(comm); }}
             onCancelEdit={() => setEditingComm(null)}
@@ -343,6 +458,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                     <Timeline
                       comms={comms}
                       documents={documents}
+                      plannedHandoverAt={jobState.plannedHandoverAt}
                       onEdit={setEditingComm}
                       onDelete={comm => setDeleteConfirmComm(comm)}
                       onLinkDocument={handleLinkDocument}
@@ -365,30 +481,54 @@ export default function JobCommsView({ job }: { job: Job }) {
                             : 'Review the timeline, then generate the next-step plan.'}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (planGenerating) return;
-                          if (hasGeneratedPlan) {
-                            setShowRegeneratePlanConfirm(true);
-                            return;
-                          }
-                          void handleGeneratePlan();
-                        }}
-                        disabled={planGenerating}
-                        className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white ${planGenerating ? 'cursor-wait opacity-70' : 'transition-opacity hover:opacity-90'}`}
-                        style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
-                      >
-                        {planGenerating
-                          ? 'Generating...'
-                          : hasGeneratedPlan
-                            ? 'Regenerate plan'
-                            : 'Generate Plan'}
-                      </button>
+                      <div className="flex shrink-0 items-end gap-3">
+                        <label className="space-y-1">
+                          <span className="block text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
+                            Days Before Handover
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            inputMode="numeric"
+                            value={handoverDaysInput}
+                            onChange={event => setHandoverDaysInput(event.target.value)}
+                            onBlur={() => { void commitHandoverDays(); }}
+                            onKeyDown={event => {
+                              if (event.key === 'Enter') {
+                                event.preventDefault();
+                                void commitHandoverDays();
+                              }
+                            }}
+                            disabled={planGenerating || savingHandoverDays}
+                            className="w-24 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (planGenerating) return;
+                            if (hasGeneratedPlan) {
+                              setShowRegeneratePlanConfirm(true);
+                              return;
+                            }
+                            void handleGeneratePlan();
+                          }}
+                          disabled={planGenerating || savingHandoverDays}
+                          className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white ${(planGenerating || savingHandoverDays) ? 'cursor-wait opacity-70' : 'transition-opacity hover:opacity-90'}`}
+                          style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+                        >
+                          {planGenerating
+                            ? 'Generating...'
+                            : hasGeneratedPlan
+                              ? 'Regenerate plan'
+                              : 'Generate Plan'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <PostNowTimeline
                     steps={postNowSteps}
+                    plannedHandoverAt={jobState.plannedHandoverAt}
                     loading={planLoading || planGenerating}
                     savingDraftId={savingDraftId}
                     onSaveDraft={handleSavePlanDraft}

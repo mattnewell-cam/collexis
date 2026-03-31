@@ -31,9 +31,9 @@ const conversationSubtypes: { value: ConversationSubtype; label: string }[] = [
 export const CATEGORIES: CategoryDef[] = [
   { value: 'due-date', label: 'Due Date', color: 'bg-amber-100 text-amber-700', dotColor: 'bg-amber-400' },
   {
-    value: 'collexis-handover',
-    label: 'Collexis Handover',
-    timelineLabelLines: ['Collexis', 'Handover'],
+    value: 'handover-letter',
+    label: 'Handover Letter',
+    timelineLabelLines: ['Handover', 'Letter'],
     timelineBadgeClass: 'min-w-[5.625rem]',
     color: 'bg-teal-100 text-teal-700',
     dotColor: 'bg-teal-400',
@@ -56,7 +56,7 @@ export function getSubtypeLabel(subtype: string): string {
 
 export function getDefaultSenderForCategory(category: CommCategory): CommSender {
   switch (category) {
-    case 'collexis-handover':
+    case 'handover-letter':
       return 'collexis';
     default:
       return 'you';

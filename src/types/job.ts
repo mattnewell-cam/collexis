@@ -23,6 +23,8 @@ export interface Job {
   phones: string[];
   invoiceDocuments: string[];
   contextInstructions: string;
+  handoverDays: number;
+  plannedHandoverAt: string | null;
 }
 
 export interface JobIntakeSummary {

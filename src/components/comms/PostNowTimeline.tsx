@@ -7,6 +7,7 @@ import type { PostNowDraft, PostNowStep } from '@/types/postNowPlan';
 
 interface Props {
   steps: PostNowStep[];
+  plannedHandoverAt?: string | null;
   loading?: boolean;
   savingDraftId?: string | null;
   onSaveDraft?: (draftId: string, payload: { subject?: string; body: string }) => Promise<PostNowDraft>;
@@ -26,6 +27,34 @@ function formatScheduledFor(value: string) {
     return value;
   }
   return stepDateFormatter.format(parsed);
+}
+
+function parseDay(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  parsed.setHours(0, 0, 0, 0);
+  return parsed;
+}
+
+function HandoverDivider({ scheduledFor }: { scheduledFor: string }) {
+  return (
+    <div className="flex py-2">
+      <div className="w-8 shrink-0" />
+      <div className="relative w-32 shrink-0 self-stretch">
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-px bg-teal-200/80" />
+      </div>
+      <div className="min-w-0 flex-1 pl-3">
+        <div className="flex items-center gap-2">
+          <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-200 to-transparent" />
+          <span className="rounded-full border border-teal-200 bg-teal-50/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-teal-700">
+            Handover
+          </span>
+        </div>
+        <p className="mt-2 text-xs font-medium text-teal-700">{formatScheduledFor(scheduledFor)}</p>
+      </div>
+    </div>
+  );
 }
 
 function draftBodyLabel(stepType: PostNowStep['type']) {
@@ -175,10 +204,13 @@ function StepDraftDetail({
 
 export default function PostNowTimeline({
   steps,
+  plannedHandoverAt = null,
   loading = false,
   savingDraftId = null,
   onSaveDraft,
 }: Props) {
+  const handoverDate = parseDay(plannedHandoverAt);
+
   if (loading) {
     return (
       <div className="flex py-3">
@@ -209,45 +241,62 @@ export default function PostNowTimeline({
 
   return (
     <div className="space-y-0">
-      {steps.map(step => {
+      {steps.map((step, index) => {
         const definition = getPostNowStepDefinition(step.type);
         const timelineLabelLines = definition.timelineLabelLines ?? [definition.label];
         const senderLabel = getSenderLabel(step.sender);
+        const previousStep = steps[index - 1];
+        const currentDay = parseDay(step.scheduledFor);
+        const previousDay = parseDay(previousStep?.scheduledFor);
+        const showHandoverBefore = handoverDate
+          && currentDay
+          && (
+            (!previousDay && handoverDate.getTime() <= currentDay.getTime())
+            || (previousDay && previousDay.getTime() < handoverDate.getTime() && handoverDate.getTime() <= currentDay.getTime())
+          );
 
         return (
-          <div key={step.id} className="flex">
-            <div className="w-8 shrink-0" />
-            <div className="relative w-32 shrink-0 self-stretch">
-              <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-px bg-gray-200" />
-              <div className="absolute inset-0 z-10 grid place-items-center">
-                <span className={`inline-grid justify-items-center gap-0.5 rounded-full px-2.5 py-1 text-center text-sm font-medium leading-tight ${definition.timelineBadgeClassName ?? ''} ${definition.color}`}>
-                  {timelineLabelLines.map(line => (
-                    <span key={line}>{line}</span>
-                  ))}
-                </span>
-              </div>
-            </div>
-            <div className="min-w-0 flex-1 py-3 pl-3">
-              <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-medium text-gray-500">
-                    {formatScheduledFor(step.scheduledFor)}
-                  </span>
-                  <span className="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
-                    {senderLabel}
+          <div key={step.id}>
+            {showHandoverBefore && plannedHandoverAt ? <HandoverDivider scheduledFor={plannedHandoverAt} /> : null}
+            <div className="flex">
+              <div className="w-8 shrink-0" />
+              <div className="relative w-32 shrink-0 self-stretch">
+                <div className="absolute bottom-0 left-1/2 top-0 w-px -translate-x-px bg-gray-200" />
+                <div className="absolute inset-0 z-10 grid place-items-center">
+                  <span className={`inline-grid justify-items-center gap-0.5 rounded-full px-2.5 py-1 text-center text-sm font-medium leading-tight ${definition.timelineBadgeClassName ?? ''} ${definition.color}`}>
+                    {timelineLabelLines.map(line => (
+                      <span key={line}>{line}</span>
+                    ))}
                   </span>
                 </div>
-                <p className="text-sm font-medium text-gray-900">{step.headline}</p>
-                <StepDraftDetail
-                  step={step}
-                  saving={savingDraftId === step.draft?.id}
-                  onSaveDraft={onSaveDraft}
-                />
+              </div>
+              <div className="min-w-0 flex-1 py-3 pl-3">
+                <div className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-gray-500">
+                      {formatScheduledFor(step.scheduledFor)}
+                    </span>
+                    <span className="inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+                      {senderLabel}
+                    </span>
+                  </div>
+                  <p className="text-sm font-medium text-gray-900">{step.headline}</p>
+                  <StepDraftDetail
+                    step={step}
+                    saving={savingDraftId === step.draft?.id}
+                    onSaveDraft={onSaveDraft}
+                  />
+                </div>
               </div>
             </div>
           </div>
         );
       })}
+      {plannedHandoverAt && handoverDate && steps.length > 0 && (() => {
+        const lastStepDay = parseDay(steps.at(-1)?.scheduledFor);
+        if (!lastStepDay || handoverDate.getTime() <= lastStepDay.getTime()) return null;
+        return <HandoverDivider scheduledFor={plannedHandoverAt} />;
+      })()}
     </div>
   );
 }

@@ -400,6 +400,7 @@ class DocumentRepository:
         steps: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         with connect(self.settings) as conn:
+            conn.execute("DELETE FROM outreach_plan_drafts WHERE job_id = ?", (job_id,))
             conn.execute("DELETE FROM outreach_plan_steps WHERE job_id = ?", (job_id,))
             for step in steps:
                 conn.execute(
