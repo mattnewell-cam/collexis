@@ -13,6 +13,7 @@ export interface Job {
   address: string;
   jobDescription: string;
   jobDetail: string;
+  dueDate: string;
   name: string;
   price: number;
   amountPaid: number;
@@ -23,3 +24,18 @@ export interface Job {
   invoiceDocuments: string[];
   contextInstructions: string;
 }
+
+export interface JobIntakeSummary {
+  jobDescription: string;
+  jobDetail: string;
+  dueDate: string | null;
+  price: number | null;
+  amountPaid: number | null;
+  emails: string[];
+  phones: string[];
+  contextInstructions: string;
+}
+
+export type JobUpdatePayload = Partial<Omit<Job, 'id'>>;
+
+export type JobProcessingNotice = 'docs-processed' | 'timeline-review';

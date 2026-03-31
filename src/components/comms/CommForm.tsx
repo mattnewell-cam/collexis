@@ -2,6 +2,9 @@
 
 import { useState } from 'react';
 import { Communication, CommCategory, CommSender, CommSubtype } from '@/types/communication';
+import type { Job } from '@/types/job';
+import { normalizeCommunicationDate } from '@/lib/communicationDates';
+import { sendSms } from '@/lib/sms';
 import {
   CATEGORIES,
   getCategoryDef,
@@ -10,6 +13,7 @@ import {
 } from './categoryConfig';
 
 interface Props {
+  job: Job;
   editing: Communication | null;
   onSave: (comm: Communication) => void;
   onCancelEdit: () => void;
@@ -40,7 +44,12 @@ function Field({
 
 const today = new Date().toISOString().slice(0, 10);
 
-export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
+export default function CommForm({
+  job,
+  editing,
+  onSave,
+  onCancelEdit,
+}: Props) {
   const isEditing = editing !== null;
 
   const [category, setCategory] = useState<CommCategory>(editing?.category ?? 'chase');
@@ -48,31 +57,69 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
   const [sender, setSender] = useState<CommSender>(
     editing?.sender ?? getDefaultSenderForCategory(editing?.category ?? 'chase'),
   );
-  const [date, setDate] = useState(editing?.date ?? today);
+  const [date, setDate] = useState(editing ? normalizeCommunicationDate(editing.date) : today);
   const [shortDescription, setShortDescription] = useState(editing?.shortDescription ?? '');
   const [details, setDetails] = useState(editing?.details ?? '');
+  const [selectedPhone, setSelectedPhone] = useState(job.phones[0] ?? '');
+  const [smsStatus, setSmsStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [smsError, setSmsError] = useState('');
 
   const catDef = getCategoryDef(category);
   const hasSubtypes = !!catDef.subtypes;
   const showSenderField = category !== 'due-date';
   const wordCount = shortDescription.trim().split(/\s+/).filter(Boolean).length;
+  const isEmailSubtype = subtype === 'email';
+  const isWhatsAppSubtype = subtype === 'whatsapp';
+  const isSmsSubtype = subtype === 'sms';
+  const canSendSms = isSmsSubtype && !isEditing && !!selectedPhone && details.trim().length > 0;
+
+  const buildCommunication = (fallbackShortDescription?: string) => ({
+    id: editing?.id ?? crypto.randomUUID(),
+    jobId: editing?.jobId ?? job.id,
+    category,
+    subtype: hasSubtypes && subtype ? (subtype as CommSubtype) : undefined,
+    sender: showSenderField ? sender : undefined,
+    date,
+    shortDescription: shortDescription.trim() || fallbackShortDescription || '',
+    details,
+  });
+
+  const resetForm = () => {
+    setShortDescription('');
+    setDetails('');
+    setDate(today);
+    setSelectedPhone(job.phones[0] ?? '');
+    setSmsStatus('idle');
+    setSmsError('');
+  };
 
   const handleSave = () => {
-    onSave({
-      id: editing?.id ?? crypto.randomUUID(),
-      jobId: editing?.jobId ?? '',
-      category,
-      subtype: hasSubtypes && subtype ? (subtype as CommSubtype) : undefined,
-      sender: showSenderField ? sender : undefined,
-      date,
-      shortDescription: shortDescription.trim(),
-      details,
-    });
+    onSave(buildCommunication());
     if (!isEditing) {
-      setShortDescription('');
-      setDetails('');
-      setDate(today);
+      resetForm();
     }
+  };
+
+  const handleSendAndLog = async () => {
+    if (!canSendSms) return;
+
+    setSmsStatus('sending');
+    setSmsError('');
+
+    const result = await sendSms({
+      to: selectedPhone,
+      text: details.trim(),
+    });
+
+    if (!result.success) {
+      setSmsStatus('error');
+      setSmsError(result.error || 'Failed to send SMS.');
+      return;
+    }
+
+    setSmsStatus('sent');
+    onSave(buildCommunication('SMS sent'));
+    resetForm();
   };
 
   return (
@@ -108,6 +155,8 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
               if (!isEditing) {
                 setSender(getDefaultSenderForCategory(nextCategory));
               }
+              setSmsStatus('idle');
+              setSmsError('');
             }}
             disabled={isEditing}
           >
@@ -122,7 +171,11 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
             <select
               className={inputCls}
               value={subtype}
-              onChange={e => setSubtype(e.target.value as CommSubtype)}
+              onChange={e => {
+                setSubtype(e.target.value as CommSubtype);
+                setSmsStatus('idle');
+                setSmsError('');
+              }}
             >
               <option value="">Select type...</option>
               {catDef.subtypes!.map(s => (
@@ -155,7 +208,7 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
         </Field>
 
         <Field
-          label="Short description"
+          label={isEmailSubtype ? 'Subject' : 'Short description'}
           meta={
             <span className={`text-xs ${wordCount > 10 ? 'text-amber-500' : 'text-gray-400'}`}>
               {wordCount}/10 words
@@ -166,19 +219,55 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
             className={inputCls}
             value={shortDescription}
             onChange={e => setShortDescription(e.target.value)}
-            placeholder="e.g. First chase email sent"
+            placeholder={isEmailSubtype ? 'e.g. Invoice #001 payment reminder' : 'e.g. First chase email sent'}
           />
         </Field>
 
-        <Field label="Details">
+        <Field label={isEmailSubtype ? 'Email body' : isWhatsAppSubtype ? 'WhatsApp body' : 'Details'}>
           <textarea
             className={inputCls + ' resize-none'}
             rows={5}
             value={details}
-            onChange={e => setDetails(e.target.value)}
-            placeholder="Full details, email text, transcript, notes..."
+            onChange={e => {
+              setDetails(e.target.value);
+              if (smsStatus !== 'idle') {
+                setSmsStatus('idle');
+                setSmsError('');
+              }
+            }}
+            placeholder={isEmailSubtype ? 'Write the email body...' : isWhatsAppSubtype ? 'Write the WhatsApp message...' : isSmsSubtype ? 'Type the SMS message...' : 'Full details, email text, transcript, notes...'}
           />
+          {isSmsSubtype ? (
+            <p className="mt-1 text-xs text-gray-400">
+              {details.length}/160 chars{details.length > 160 ? ` (${Math.ceil(details.length / 153)} parts)` : ''}
+            </p>
+          ) : null}
         </Field>
+
+        {isSmsSubtype && !isEditing && job.phones.length > 0 ? (
+          <Field label="Send to">
+            <select
+              className={inputCls}
+              value={selectedPhone}
+              onChange={e => setSelectedPhone(e.target.value)}
+            >
+              {job.phones.map(phone => (
+                <option key={phone} value={phone}>{phone}</option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
+
+        {smsStatus === 'sent' ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            SMS sent successfully.
+          </div>
+        ) : null}
+        {smsStatus === 'error' ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {smsError}
+          </div>
+        ) : null}
       </div>
 
       {/* Save bar pinned to bottom */}
@@ -191,13 +280,32 @@ export default function CommForm({ editing, onSave, onCancelEdit }: Props) {
             Cancel
           </button>
         )}
-        <button
-          onClick={handleSave}
-          className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
-          style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
-        >
-          {isEditing ? 'Save changes' : 'Add'}
-        </button>
+        {canSendSms ? (
+          <>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 transition-colors hover:bg-gray-200"
+            >
+              Log only
+            </button>
+            <button
+              onClick={() => { void handleSendAndLog(); }}
+              disabled={smsStatus === 'sending'}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+            >
+              {smsStatus === 'sending' ? 'Sending...' : 'Send & log'}
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={handleSave}
+            className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+          >
+            {isEditing ? 'Save changes' : 'Add'}
+          </button>
+        )}
       </div>
     </div>
   );

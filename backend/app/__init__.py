@@ -1,0 +1,1 @@
+"""Collexis backend package."""

@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+ENV_LOCAL_PATH = REPO_ROOT / ".env.local"
+
+
+def load_local_env() -> None:
+    if ENV_LOCAL_PATH.exists():
+        load_dotenv(ENV_LOCAL_PATH, override=False)
+
+
+@dataclass(frozen=True)
+class Settings:
+    data_dir: Path
+    database_path: Path
+    uploads_dir: Path
+    openai_api_key: str | None
+
+    @classmethod
+    def from_env(cls) -> "Settings":
+        load_local_env()
+        data_dir = Path(os.getenv("COLLEXIS_DATA_DIR", "backend/.data")).resolve()
+        return cls(
+            data_dir=data_dir,
+            database_path=data_dir / "documents.sqlite3",
+            uploads_dir=data_dir / "uploads",
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+        )
+
+    def ensure_directories(self) -> None:
+        self.uploads_dir.mkdir(parents=True, exist_ok=True)

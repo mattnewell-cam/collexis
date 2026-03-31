@@ -1,3 +1,4 @@
+import AuthGate from '@/components/auth/AuthGate';
 import NavBar from '@/components/NavBar';
 
 export default function ConsoleLayout({
@@ -6,9 +7,11 @@ export default function ConsoleLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-white">
-      <NavBar />
-      {children}
-    </div>
+    <AuthGate mode="app">
+      <div className="min-h-screen bg-white">
+        <NavBar />
+        {children}
+      </div>
+    </AuthGate>
   );
 }

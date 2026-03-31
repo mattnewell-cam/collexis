@@ -1,13 +1,22 @@
 'use client';
 
 import { Communication } from '@/types/communication';
+import { DocumentRecord } from '@/types/document';
+import { parseCommunicationDate } from '@/lib/communicationDates';
 import TimelineItem from './TimelineItem';
 
 interface Props {
   comms: Communication[];
+  documents: DocumentRecord[];
   onEdit: (comm: Communication) => void;
   onDelete: (comm: Communication) => void;
+  onLinkDocument: (comm: Communication, documentId: string) => Promise<void>;
+  onUploadDocuments: (comm: Communication, files: FileList) => Promise<void>;
 }
+
+const nowDividerLineStyle = {
+  background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)',
+};
 
 function formatInterval(days: number): string {
   if (days < 30) return `${days}d`;
@@ -15,16 +24,20 @@ function formatInterval(days: number): string {
   return `${(days / 365).toFixed(1).replace(/\.0$/, '')}y`;
 }
 
-function Connector({ days }: { days: number }) {
+function Connector({
+  days,
+  alwaysShowLabel = false,
+}: {
+  days: number;
+  alwaysShowLabel?: boolean;
+}) {
   return (
-    <div className="flex h-10">
+    <div className="flex h-5">
       <div className="w-8 shrink-0" />
-      <div className="w-32 shrink-0 relative">
-        {/* Vertical line — same positioning as TimelineItem */}
-        <div className="absolute left-1/2 -translate-x-px w-px h-full bg-gray-200" />
-        {/* Interval label — vertically centred, hugging the left of the line */}
-        {days > 0 && (
-          <span className="absolute right-1/2 pr-1.5 top-1/2 -translate-y-1/2 text-sm text-gray-400 whitespace-nowrap">
+      <div className="relative w-32 shrink-0">
+        <div className="absolute left-1/2 h-full w-px -translate-x-px bg-gray-200" />
+        {(alwaysShowLabel || days > 0) && (
+          <span className="absolute right-1/2 top-1/2 -translate-y-1/2 whitespace-nowrap pr-1.5 text-sm text-gray-400">
             {formatInterval(days)}
           </span>
         )}
@@ -34,30 +47,81 @@ function Connector({ days }: { days: number }) {
   );
 }
 
-export default function Timeline({ comms, onEdit, onDelete }: Props) {
-  const sorted = [...comms].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+function NowDivider() {
+  return (
+    <div className="relative flex h-12 items-center">
+      <div className="w-8 shrink-0" />
+      <div className="relative w-32 shrink-0 self-stretch">
+        <div className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-px bg-gray-200" />
+      </div>
+      <div className="absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center gap-3">
+        <div className="h-0.5 flex-1" style={nowDividerLineStyle} />
+        <span
+          className="bg-white px-3 text-xs font-semibold uppercase tracking-wider"
+          style={{ color: '#1e9bb8' }}
+        >
+          Now
+        </span>
+        <div className="h-0.5 flex-1" style={nowDividerLineStyle} />
+      </div>
+    </div>
   );
+}
+
+export default function Timeline({
+  comms,
+  documents,
+  onEdit,
+  onDelete,
+  onLinkDocument,
+  onUploadDocuments,
+}: Props) {
+  const sorted = [...comms].sort(
+    (a, b) => (parseCommunicationDate(a.date)?.getTime() ?? 0) - (parseCommunicationDate(b.date)?.getTime() ?? 0),
+  );
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const lastComm = sorted.at(-1);
+  const daysFromLastActionToNow = lastComm
+    && parseCommunicationDate(lastComm.date)
+    ? Math.max(
+        0,
+        Math.round(
+          (today.getTime() - parseCommunicationDate(lastComm.date)!.getTime()) / 86400000,
+        ),
+      )
+    : 0;
 
   return (
     <div className="flex-1 min-h-[300px]">
       {sorted.length === 0 ? (
-        <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
-          <svg className="w-12 h-12 mb-3 text-gray-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <div className="flex h-full flex-col items-center justify-center py-16 text-gray-400">
+          <svg
+            className="mb-3 h-12 w-12 text-gray-300"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <circle cx="12" cy="12" r="10" />
             <polyline points="12 6 12 12 16 14" />
           </svg>
           <p className="text-sm">No communications yet</p>
-          <p className="text-xs mt-1">Use the form on the left to add one</p>
+          <p className="mt-1 text-xs">Use the form on the left to add one</p>
         </div>
       ) : (
         <>
           {sorted.map((comm, i) => {
             const prev = sorted[i - 1];
+            const currentDate = parseCommunicationDate(comm.date);
+            const previousDate = prev ? parseCommunicationDate(prev.date) : null;
             const intervalDays = prev
+              && currentDate
+              && previousDate
               ? Math.round(
-                  (new Date(comm.date + 'T00:00:00').getTime() -
-                    new Date(prev.date + 'T00:00:00').getTime()) /
+                  (currentDate.getTime() - previousDate.getTime()) /
                     86400000,
                 )
               : 0;
@@ -65,24 +129,20 @@ export default function Timeline({ comms, onEdit, onDelete }: Props) {
             return (
               <div key={comm.id}>
                 {i > 0 && <Connector days={intervalDays} />}
-                <TimelineItem comm={comm} onEdit={onEdit} onDelete={onDelete} />
+                <TimelineItem
+                  comm={comm}
+                  documents={documents}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onLinkDocument={onLinkDocument}
+                  onUploadDocuments={onUploadDocuments}
+                />
               </div>
             );
           })}
 
-          {/* Trailing line + NOW */}
-          <div className="flex h-8">
-            <div className="w-8 shrink-0" />
-            <div className="w-32 shrink-0 relative">
-              <div className="absolute top-0 bottom-0 left-1/2 -translate-x-px w-px bg-gray-200" />
-            </div>
-            <div className="flex-1" />
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="h-0.5 flex-1" style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }} />
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#1e9bb8' }}>Now</span>
-            <div className="h-0.5 flex-1" style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }} />
-          </div>
+          <Connector days={daysFromLastActionToNow} alwaysShowLabel />
+          <NowDivider />
         </>
       )}
     </div>

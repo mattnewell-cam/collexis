@@ -2,12 +2,21 @@ import { Job } from '@/types/job';
 
 let nextId = 13;
 
+const REFERENCE_DATE = new Date('2026-03-29T00:00:00Z');
+
+function dueDateFromOverdue(daysOverdue: number) {
+  const dueDate = new Date(REFERENCE_DATE);
+  dueDate.setUTCDate(dueDate.getUTCDate() - daysOverdue);
+  return dueDate.toISOString().slice(0, 10);
+}
+
 export const mockJobs: Job[] = [
   {
     id: '1',
     address: '14 Elmfield Road, Bristol BS3 4DQ',
     jobDescription: 'Emergency burst pipe repair',
-    jobDetail: 'Attended emergency call-out for burst 22mm copper pipe beneath kitchen sink. Isolated water supply, cut out damaged section, replaced with new compression-fit copper pipe and fittings. Tested for leaks and restored supply. Also inspected adjacent pipework and noted minor corrosion on stop valve — client advised but declined further works.',
+    jobDetail: 'Attended emergency call-out for burst 22mm copper pipe beneath kitchen sink. Isolated water supply, cut out damaged section, replaced with new compression-fit copper pipe and fittings. Tested for leaks and restored supply. Also inspected adjacent pipework and noted minor corrosion on stop valve - client advised but declined further works.',
+    dueDate: dueDateFromOverdue(47),
     name: 'Patricia Whitmore',
     price: 1420,
     amountPaid: 0,
@@ -16,13 +25,14 @@ export const mockJobs: Job[] = [
     emails: ['p.whitmore@btinternet.com'],
     phones: ['07712 334 891'],
     invoiceDocuments: ['invoice-001.pdf', 'job-report-001.pdf'],
-    contextInstructions: 'Client has not responded to two previous emails. Prefers contact by phone in the morning. Insurance claim may be pending — confirm before pursuing legal action.',
+    contextInstructions: 'Client has not responded to two previous emails. Prefers contact by phone in the morning. Insurance claim may be pending - confirm before pursuing legal action.',
   },
   {
     id: '2',
     address: '9 Cavendish Place, Leeds LS1 2HG',
     jobDescription: 'Consumer unit upgrade',
     jobDetail: 'Replaced outdated fuse board with new 18-way dual RCD consumer unit compliant with BS 7671:2018. Rewired all circuits to new board, fitted surge protection device, and labelled all ways. Full installation test carried out and NICEIC certificate issued. Works took two days including isolation of supply with DNO notification.',
+    dueDate: dueDateFromOverdue(31),
     name: 'Holt Commercial Ltd',
     price: 2800,
     amountPaid: 0,
@@ -31,13 +41,14 @@ export const mockJobs: Job[] = [
     emails: ['accounts@holtcommercial.co.uk', 'm.holt@holtcommercial.co.uk'],
     phones: ['0113 496 0387'],
     invoiceDocuments: ['invoice-002.pdf'],
-    contextInstructions: 'Commercial client. Disputes total amount — claims £2,400 was verbally agreed. Signed quote on file confirms £2,800. Do not concede on price.',
+    contextInstructions: 'Commercial client. Disputes total amount - claims GBP 2,400 was verbally agreed. Signed quote on file confirms GBP 2,800. Do not concede on price.',
   },
   {
     id: '3',
     address: '220 Birchwood Lane, Manchester M14 6TW',
     jobDescription: 'Boiler replacement',
     jobDetail: 'Removed old back boiler and back boiler unit. Supplied and installed Worcester Bosch Greenstar 8000 30kW combi boiler in kitchen cupboard. New flue fitted through external wall, full system flush with chemical cleaner, Magna Clean filter fitted. Registered with Gas Safe and building control notified. New 7-day programmer and room thermostat installed.',
+    dueDate: dueDateFromOverdue(19),
     name: 'The Patel Family',
     price: 3100,
     amountPaid: 500,
@@ -46,13 +57,14 @@ export const mockJobs: Job[] = [
     emails: ['r.patel@gmail.com'],
     phones: ['07834 112 203', '07834 112 918'],
     invoiceDocuments: ['invoice-003.pdf', 'gas-safety-cert-003.pdf', 'parts-receipt-003.pdf'],
-    contextInstructions: 'Two numbers on file — try the first. Family paid a £500 deposit at time of booking. Polite tone recommended; no previous issues with this client.',
+    contextInstructions: 'Two numbers on file - try the first. Family paid a GBP 500 deposit at time of booking. Polite tone recommended; no previous issues with this client.',
   },
   {
     id: '4',
     address: '5 Granby Court, Birmingham B15 2QP',
     jobDescription: 'Full bathroom refit',
     jobDetail: 'Full strip-out of existing bathroom suite. Supplied and fitted new close-coupled WC, pedestal basin, and P-shaped shower bath with glass screen. Retiled floor and walls in client-supplied porcelain tiles. New chrome towel rail, extractor fan, and shaver socket fitted. All waste connections updated. Works completed over 6 days.',
+    dueDate: dueDateFromOverdue(62),
     name: 'Brendan Farrell',
     price: 5800,
     amountPaid: 0,
@@ -68,6 +80,7 @@ export const mockJobs: Job[] = [
     address: '88 Cypress Avenue, Edinburgh EH6 7NB',
     jobDescription: 'Roof gutter replacement',
     jobDetail: 'Removed existing cast iron guttering to rear elevation. Supplied and fitted 112mm half-round uPVC guttering and 68mm downpipes, including all brackets, unions, and stop ends. Old cast iron taken away and disposed of. Downpipes connected to existing underground drainage. Minor pointing carried out to one fascia bracket fixing.',
+    dueDate: dueDateFromOverdue(8),
     name: 'Okafor Properties',
     price: 875,
     amountPaid: 0,
@@ -76,13 +89,14 @@ export const mockJobs: Job[] = [
     emails: ['accounts@okaforproperties.co.uk'],
     phones: ['0131 555 0461'],
     invoiceDocuments: ['invoice-005.pdf'],
-    contextInstructions: 'New client. First overdue notice — friendly reminder tone only. Accounts payable contact is different from the property manager who arranged the job.',
+    contextInstructions: 'New client. First overdue notice - friendly reminder tone only. Accounts payable contact is different from the property manager who arranged the job.',
   },
   {
     id: '6',
     address: '32 Victoria Terrace, Newcastle NE1 4RQ',
     jobDescription: 'Damp proofing and replastering',
-    jobDetail: 'Hacked off salt-contaminated plaster to front bay wall (approx 18m²). Applied chemical damp proof course injection to external wall. Re-plastered using sand and cement scratch coat followed by renovating plaster finish coat. Works carried out in two visits with drying time between coats. Area left ready for decoration.',
+    jobDetail: 'Hacked off salt-contaminated plaster to front bay wall (approx 18m2). Applied chemical damp proof course injection to external wall. Re-plastered using sand and cement scratch coat followed by renovating plaster finish coat. Works carried out in two visits with drying time between coats. Area left ready for decoration.',
+    dueDate: dueDateFromOverdue(38),
     name: 'Derek Ashworth',
     price: 2200,
     amountPaid: 1000,
@@ -91,13 +105,14 @@ export const mockJobs: Job[] = [
     emails: ['d.ashworth@yahoo.co.uk'],
     phones: ['07921 445 667'],
     invoiceDocuments: ['invoice-006.pdf', 'survey-report-006.pdf'],
-    contextInstructions: 'Client paid £1,000 upfront, has since gone quiet. Disputes whether replastering was in scope — it was explicitly listed in the signed contract.',
+    contextInstructions: 'Client paid GBP 1,000 upfront, has since gone quiet. Disputes whether replastering was in scope - it was explicitly listed in the signed contract.',
   },
   {
     id: '7',
     address: '7 Marlowe Close, Canterbury CT1 3YH',
     jobDescription: 'Loft conversion structural works',
     jobDetail: 'Structural works for loft conversion on 1930s semi-detached property. Supplied and installed new steel ridge beam (RSJ), two steel purlin beams, and associated padstones. Formed new floor using 47x220 C24 joists at 400mm centres. Temporary support works throughout. Steel designed by structural engineer; works compliant with building control approved drawings.',
+    dueDate: dueDateFromOverdue(74),
     name: 'Greenfield Developments',
     price: 9400,
     amountPaid: 4700,
@@ -106,13 +121,14 @@ export const mockJobs: Job[] = [
     emails: ['finance@greenfield-dev.co.uk'],
     phones: ['01227 830 142'],
     invoiceDocuments: ['invoice-007.pdf', 'structural-drawings-007.pdf', 'completion-007.pdf'],
-    contextInstructions: 'County court judgment granted. Client paid 50% deposit; balance of £4,700 outstanding. Enforce judgment if payment not received within 14 days.',
+    contextInstructions: 'County court judgment granted. Client paid 50% deposit; balance of GBP 4,700 outstanding. Enforce judgment if payment not received within 14 days.',
   },
   {
     id: '8',
     address: '61 Hazel Grove, Sheffield S7 2DF',
     jobDescription: 'Central heating installation',
     jobDetail: 'Full central heating installation to previously unheated mid-terrace property. Supplied and installed Worcester Bosch 25i compact boiler, 8 double panel radiators with TRVs, all pipework in 15mm and 22mm copper, and a Honeywell T6 programmer. System filled, flushed, balanced, and commissioned. Gas Safe certificate issued.',
+    dueDate: dueDateFromOverdue(25),
     name: 'Miriam Okonkwo',
     price: 4300,
     amountPaid: 0,
@@ -121,14 +137,14 @@ export const mockJobs: Job[] = [
     emails: ['m.okonkwo@hotmail.co.uk'],
     phones: ['07855 773 210'],
     invoiceDocuments: ['invoice-008.pdf'],
-    contextInstructions: 'Client recently changed address — confirm current address before sending any written correspondence. First chase only; maintain a polite tone.',
+    contextInstructions: 'Client recently changed address - confirm current address before sending any written correspondence. First chase only; maintain a polite tone.',
   },
-  // Past jobs
   {
     id: '9',
     address: '3 Rosewood Drive, Norwich NR2 2BH',
     jobDescription: 'Kitchen rewire',
     jobDetail: 'Full rewire of kitchen circuits including new 32A ring final for sockets, dedicated 45A cooker circuit, and LED downlighter circuit. All cables concealed in walls with plaster repair made good. New double sockets and switched fused spurs fitted. Minor works to consumer unit to accommodate new circuits. NICEIC minor works certificates issued.',
+    dueDate: dueDateFromOverdue(0),
     name: 'Tom Bellingham',
     price: 1650,
     amountPaid: 1650,
@@ -137,13 +153,14 @@ export const mockJobs: Job[] = [
     emails: ['tom.bellingham@gmail.com'],
     phones: ['07788 221 034'],
     invoiceDocuments: ['invoice-009.pdf'],
-    contextInstructions: 'Settled in full after second chase. Good client — flag for future work.',
+    contextInstructions: 'Settled in full after second chase. Good client - flag for future work.',
   },
   {
     id: '10',
     address: '19 Langton Street, London SW10 0JL',
     jobDescription: 'Flat roof repair',
-    jobDetail: 'Stripped existing mineral felt to rear flat roof (approx 32m²). Replaced damaged OSB deck boards in two areas. Installed new three-layer hot melt felt system with fibreglass reinforcement layer. Upstands dressed to parapet walls and new aluminium trim fitted. 20-year manufacturer guarantee issued. Minor leadwork repairs carried out to adjacent chimney abutment.',
+    jobDetail: 'Stripped existing mineral felt to rear flat roof (approx 32m2). Replaced damaged OSB deck boards in two areas. Installed new three-layer hot melt felt system with fibreglass reinforcement layer. Upstands dressed to parapet walls and new aluminium trim fitted. 20-year manufacturer guarantee issued. Minor leadwork repairs carried out to adjacent chimney abutment.',
+    dueDate: dueDateFromOverdue(0),
     name: 'Chelsea Properties Ltd',
     price: 3750,
     amountPaid: 3750,
@@ -159,6 +176,7 @@ export const mockJobs: Job[] = [
     address: '44 Thornton Road, Bradford BD1 2LN',
     jobDescription: 'Drainage clearance and CCTV survey',
     jobDetail: 'High-pressure water jetting to clear blockage in 100mm underground drain between manhole and soakaway. CCTV survey carried out post-clearance showing root ingress at pipe joint approximately 4m from manhole. Report and footage provided to client with recommendation for patch lining. Client declined further works at the time.',
+    dueDate: dueDateFromOverdue(110),
     name: 'Wayne Sugden',
     price: 620,
     amountPaid: 0,
@@ -174,6 +192,7 @@ export const mockJobs: Job[] = [
     address: '8 Priory Walk, Oxford OX1 4RT',
     jobDescription: 'Sash window restoration',
     jobDetail: 'Restoration of four original Victorian sash windows to first floor. Cords replaced on all four windows with wax-coated cotton sash cord. Staff beads and parting beads removed, cleaned, and refitted. All sashes eased and rebalanced. Putty repaired and primed on two sashes. Draught-proofing strips fitted to meeting rails and side channels throughout.',
+    dueDate: dueDateFromOverdue(0),
     name: 'Dr Frances Alderton',
     price: 2100,
     amountPaid: 2100,
@@ -182,7 +201,7 @@ export const mockJobs: Job[] = [
     emails: ['f.alderton@oxon.ac.uk'],
     phones: ['01865 770 088'],
     invoiceDocuments: ['invoice-012.pdf'],
-    contextInstructions: 'Paid in full with brief delay due to university payment cycle. No issues — excellent client.',
+    contextInstructions: 'Paid in full with brief delay due to university payment cycle. No issues - excellent client.',
   },
 ];
 
@@ -193,6 +212,7 @@ export function addJob(name: string, address: string, documents: string[]): Job 
     address,
     jobDescription: '',
     jobDetail: '',
+    dueDate: dueDateFromOverdue(0),
     price: 0,
     amountPaid: 0,
     daysOverdue: 0,
@@ -204,4 +224,14 @@ export function addJob(name: string, address: string, documents: string[]): Job 
   };
   mockJobs.push(job);
   return job;
+}
+
+export function removeJob(jobId: string): Job | undefined {
+  const index = mockJobs.findIndex(job => job.id === jobId);
+  if (index === -1) {
+    return undefined;
+  }
+
+  const [removedJob] = mockJobs.splice(index, 1);
+  return removedJob;
 }

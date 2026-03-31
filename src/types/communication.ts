@@ -8,7 +8,7 @@ export type CommCategory =
 
 export type ChaseSubtype =
   | 'email'
-  | 'text'
+  | 'sms'
   | 'whatsapp'
   | 'facebook'
   | 'voicemail'
@@ -16,7 +16,7 @@ export type ChaseSubtype =
 
 export type ConversationSubtype =
   | 'email'
-  | 'text'
+  | 'sms'
   | 'whatsapp'
   | 'facebook'
   | 'phone'
@@ -35,4 +35,5 @@ export interface Communication {
   date: string; // ISO date string
   shortDescription: string; // <10 words, displayed inline
   details: string; // free-text, can be lengthy
+  linkedDocumentIds?: string[];
 }

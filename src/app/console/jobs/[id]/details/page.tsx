@@ -1,6 +1,7 @@
+import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
-import { mockJobs } from '@/data/mockJobs';
 import JobDetailsForm from '@/components/JobDetailsForm';
+import { findJobById } from '@/lib/jobStore';
 
 export default async function JobDetailsPage({
   params,
@@ -8,7 +9,7 @@ export default async function JobDetailsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const job = mockJobs.find(j => j.id === id);
+  const job = findJobById(id, await cookies());
 
   if (!job) notFound();
 

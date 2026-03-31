@@ -12,7 +12,7 @@ export interface CategoryDef {
 
 const chaseSubtypes: { value: ChaseSubtype; label: string }[] = [
   { value: 'email', label: 'Email' },
-  { value: 'text', label: 'Text' },
+  { value: 'sms', label: 'SMS' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'facebook', label: 'Facebook' },
   { value: 'voicemail', label: 'Voicemail' },
@@ -21,7 +21,7 @@ const chaseSubtypes: { value: ChaseSubtype; label: string }[] = [
 
 const conversationSubtypes: { value: ConversationSubtype; label: string }[] = [
   { value: 'email', label: 'Email' },
-  { value: 'text', label: 'Text' },
+  { value: 'sms', label: 'SMS' },
   { value: 'whatsapp', label: 'WhatsApp' },
   { value: 'facebook', label: 'Facebook' },
   { value: 'phone', label: 'Phone' },
@@ -49,6 +49,7 @@ export function getCategoryDef(cat: CommCategory): CategoryDef {
 }
 
 export function getSubtypeLabel(subtype: string): string {
+  if (subtype === 'text') return 'SMS';
   const all = [...chaseSubtypes, ...conversationSubtypes];
   return all.find(s => s.value === subtype)?.label ?? subtype;
 }

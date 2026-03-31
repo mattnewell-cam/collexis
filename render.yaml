@@ -7,3 +7,21 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: DOCUMENT_BACKEND_URL
+        value: https://collexis-backend.onrender.com
+  - type: web
+    name: collexis-backend
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: COLLEXIS_DATA_DIR
+        value: /var/data/collexis
+      - key: OPENAI_API_KEY
+        sync: false
+    disk:
+      name: collexis-data
+      mountPath: /var/data/collexis
+      sizeGB: 1

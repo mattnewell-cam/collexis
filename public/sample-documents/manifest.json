@@ -1,0 +1,105 @@
+{
+  "generatedAt": "2026-03-29T18:51:04.137Z",
+  "company": {
+    "name": "Northgate Property Services Ltd",
+    "shortName": "Northgate Property Services",
+    "address": [
+      "41 Armitage Street",
+      "Bristol BS3 5NE"
+    ],
+    "accountsEmail": "accounts@northgateps.co.uk",
+    "creditEmail": "creditcontrol@northgateps.co.uk",
+    "phone": "0117 496 2184"
+  },
+  "legacySampleFilenames": [
+    "northgate-plumbing-final.pdf",
+    "beacon-electrical-commercial.pdf",
+    "maple-roofing-balance.pdf",
+    "patricia-payment-friday.png",
+    "holt-accounts-query.png",
+    "miriam-split-payment.png",
+    "email-payment-confirmation.png",
+    "email-dispute-follow-up.png",
+    "email-part-payment-mobile.png"
+  ],
+  "categories": {
+    "invoices": [
+      {
+        "slug": "northgate-burst-pipe-final",
+        "jobId": "1",
+        "title": "Burst pipe final invoice",
+        "format": "pdf",
+        "path": "/sample-documents/invoices/northgate-burst-pipe-final.pdf",
+        "notes": "Emergency burst pipe repair"
+      },
+      {
+        "slug": "northgate-consumer-unit-commercial",
+        "jobId": "2",
+        "title": "Consumer unit upgrade commercial invoice",
+        "format": "pdf",
+        "path": "/sample-documents/invoices/northgate-consumer-unit-commercial.pdf",
+        "notes": "Consumer unit upgrade and certification"
+      },
+      {
+        "slug": "northgate-heating-install-balance",
+        "jobId": "8",
+        "title": "Central heating balance invoice",
+        "format": "pdf",
+        "path": "/sample-documents/invoices/northgate-heating-install-balance.pdf",
+        "notes": "Central heating installation balance"
+      }
+    ],
+    "whatsapp": [
+      {
+        "slug": "patricia-payment-friday",
+        "jobId": "1",
+        "title": "WhatsApp thread with payment promise",
+        "format": "png",
+        "path": "/sample-documents/whatsapp/patricia-payment-friday.png",
+        "notes": "Morning. I have seen your invoice reminder. I am waiting for insurance to confirm the burst pipe claim."
+      },
+      {
+        "slug": "holt-accounts-query",
+        "jobId": "2",
+        "title": "WhatsApp thread disputing an amount",
+        "format": "png",
+        "path": "/sample-documents/whatsapp/holt-accounts-query.png",
+        "notes": "Your invoice is above the amount my site team expected. Can you resend the signed sheet and final certificate pack?"
+      },
+      {
+        "slug": "miriam-split-payment",
+        "jobId": "8",
+        "title": "WhatsApp thread offering instalments",
+        "format": "png",
+        "path": "/sample-documents/whatsapp/miriam-split-payment.png",
+        "notes": "I cannot clear the whole heating invoice this week. I can send GBP 1200 now and the rest after payday on the 28th."
+      }
+    ],
+    "emails": [
+      {
+        "slug": "patricia-insurance-update",
+        "jobId": "1",
+        "title": "Email updating on insurance timing",
+        "format": "png",
+        "path": "/sample-documents/emails/patricia-insurance-update.png",
+        "notes": "Re: INV-2026-0418 insurance update"
+      },
+      {
+        "slug": "holt-dispute-follow-up",
+        "jobId": "2",
+        "title": "Email disputing part of an invoice",
+        "format": "png",
+        "path": "/sample-documents/emails/holt-dispute-follow-up.png",
+        "notes": "Query on consumer unit invoice"
+      },
+      {
+        "slug": "miriam-part-payment-mobile",
+        "jobId": "8",
+        "title": "Mobile email offering part payment",
+        "format": "png",
+        "path": "/sample-documents/emails/miriam-part-payment-mobile.png",
+        "notes": "Heating invoice payment plan"
+      }
+    ]
+  }
+}
