@@ -5,12 +5,6 @@ import { useAuth } from '@/components/auth/AuthProvider';
 
 type Mode = 'signin' | 'signup' | 'forgot';
 
-const featurePoints = [
-  'Track outstanding and paid jobs from one console.',
-  'Keep company details together with each operator account.',
-  'Get new team members into the workspace with a simple email and password flow.',
-];
-
 export default function AuthLanding() {
   const { signIn, signUp, requestPasswordReset } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
@@ -72,30 +66,13 @@ export default function AuthLanding() {
 
       <div className="relative mx-auto grid min-h-screen max-w-6xl gap-12 px-6 py-10 lg:grid-cols-[1.15fr_0.85fr] lg:px-10">
         <section className="flex flex-col justify-center">
-          <span className="inline-flex w-fit rounded-full border border-teal-200 bg-white/80 px-4 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-teal-700 shadow-sm">
-            Collexis Console
-          </span>
-          <h1 className="mt-6 max-w-xl text-5xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-6xl">
-            Sign in to manage collections with your team.
+          <h1 className="max-w-xl text-5xl font-semibold tracking-[-0.04em] text-slate-950 sm:text-6xl">
+            Sign in to{' '}
+            <span className="bg-[linear-gradient(135deg,#2abfaa_0%,#1e9bb8_100%)] bg-clip-text text-transparent">
+              Collexis
+            </span>
+            .
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-600">
-            Create an account with email and password, then finish a short company profile before entering the console.
-          </p>
-
-          <div className="mt-10 grid gap-4 sm:grid-cols-3">
-            {featurePoints.map(point => (
-              <div
-                key={point}
-                className="rounded-3xl border border-white/80 bg-white/75 p-5 shadow-[0_22px_50px_-34px_rgba(15,23,42,0.45)] backdrop-blur"
-              >
-                <div
-                  className="h-9 w-9 rounded-2xl"
-                  style={{ background: 'linear-gradient(135deg, rgba(42,191,170,0.16), rgba(30,155,184,0.22))' }}
-                />
-                <p className="mt-4 text-sm leading-6 text-slate-600">{point}</p>
-              </div>
-            ))}
-          </div>
         </section>
 
         <section className="flex items-center justify-center">
