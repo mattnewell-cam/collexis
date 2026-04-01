@@ -26,6 +26,10 @@ For a small UI tweak, prefer this loop:
 3. Verify with one screenshot.
 4. Only explore more broadly if the first patch fails or reveals hidden coupling.
 
+## Deployment
+
+The production site is `collexis.uk`, deployed automatically from the `main` branch on Render. Every code change must be committed and pushed to `main` to take effect in production. After pushing, Render will build and deploy automatically — no manual trigger needed.
+
 ## Worktree Workflow
 
 When work in a worktree is complete, merge it cleanly into main: switch to main, merge the worktree branch (fast-forward if possible, otherwise a regular merge), then delete the worktree branch.
