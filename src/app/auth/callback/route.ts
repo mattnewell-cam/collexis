@@ -6,14 +6,20 @@ export async function GET(request: Request) {
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/console';
 
+  // On Render (and other reverse proxies), request.url uses the internal host
+  // (localhost:10000). Use x-forwarded-host to get the real public origin.
+  const forwardedHost = request.headers.get('x-forwarded-host');
+  const forwardedProto = request.headers.get('x-forwarded-proto') ?? 'https';
+  const publicOrigin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : origin;
+
   if (code) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+      return NextResponse.redirect(`${publicOrigin}${next}`);
     }
   }
 
-  return NextResponse.redirect(`${origin}/?error=auth_callback`);
+  return NextResponse.redirect(`${publicOrigin}/?error=auth_callback`);
 }
