@@ -95,7 +95,7 @@ def row_to_outreach_plan_draft(row: Any) -> dict[str, Any]:
 
 
 @dataclass(slots=True)
-class DocumentRepository:
+class SQLiteDocumentRepository:
     settings: Settings
 
     def list_all(self) -> list[dict[str, Any]]:
@@ -177,6 +177,27 @@ class DocumentRepository:
         if document is None:
             raise RuntimeError("Created document could not be loaded.")
         return document
+
+    def build_storage_path(self, job_id: str, document_id: str, extension: str) -> str:
+        return str(self.settings.uploads_dir / f"{document_id}{extension}")
+
+    def write_file(self, storage_path: str, content: bytes, mime_type: str) -> None:
+        del mime_type
+        self.settings.ensure_directories()
+        Path(storage_path).write_bytes(content)
+
+    def read_file(self, storage_path: str) -> bytes:
+        file_path = Path(storage_path)
+        if not file_path.exists():
+            raise FileNotFoundError(storage_path)
+        return file_path.read_bytes()
+
+    def delete_storage_path(self, storage_path: str) -> bool:
+        file_path = Path(storage_path)
+        if not file_path.exists():
+            return False
+        file_path.unlink()
+        return True
 
     def update_fields(self, document_id: str, **fields: Any) -> dict[str, Any]:
         if not fields:
@@ -617,3 +638,20 @@ class DocumentRepository:
             links_by_timeline_item_id[str(row["timeline_item_id"])].append(str(row["document_id"]))
         for timeline_item in timeline_items:
             timeline_item["linked_document_ids"] = links_by_timeline_item_id.get(str(timeline_item["id"]), [])
+
+
+class DocumentRepository:
+    def __init__(self, settings: Settings):
+        self._settings = settings
+        self._impl = self._build_impl(settings)
+
+    @staticmethod
+    def _build_impl(settings: Settings) -> Any:
+        if settings.uses_supabase:
+            from .repository_supabase import SupabaseDocumentRepository
+
+            return SupabaseDocumentRepository(settings)
+        return SQLiteDocumentRepository(settings)
+
+    def __getattr__(self, item: str) -> Any:
+        return getattr(self._impl, item)

@@ -1,0 +1,624 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+from urllib.parse import quote
+from uuid import uuid4
+
+import httpx
+
+from .config import Settings
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    text = str(value)
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    return datetime.fromisoformat(text)
+
+
+def normalize_sms_channel(value: Any) -> Any:
+    if value == "text":
+        return "sms"
+    return value
+
+
+def normalize_sms_headline(value: Any, *, step_type: Any) -> Any:
+    headline = str(value) if isinstance(value, str) else value
+    if normalize_sms_channel(step_type) != "sms" or not isinstance(headline, str):
+        return headline
+    if headline.startswith("Text:"):
+        return f"SMS:{headline[len('Text:'):]}"
+    if headline.startswith("Text "):
+        return f"SMS {headline[len('Text '):]}"
+    return headline
+
+
+def filename_stem(filename: str) -> str:
+    stem = filename.rsplit(".", 1)[0].strip()
+    return stem or "Untitled document"
+
+
+def in_filter(values: list[str]) -> str:
+    escaped = [f"\"{value.replace('\"', '\\\"')}\"" for value in values]
+    return f"in.({','.join(escaped)})"
+
+
+def row_to_document(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "job_id": row["job_id"],
+        "original_filename": row["original_filename"],
+        "mime_type": row["mime_type"],
+        "storage_path": row["storage_path"],
+        "status": row["status"],
+        "title": row["title"],
+        "communication_date": row.get("communication_date"),
+        "description": row.get("description") or "",
+        "transcript": row.get("transcript") or "",
+        "extraction_error": row.get("extraction_error"),
+        "created_at": parse_datetime(row["created_at"]),
+        "updated_at": parse_datetime(row["updated_at"]),
+    }
+
+
+def row_to_timeline_item(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "job_id": row["job_id"],
+        "category": row["category"],
+        "subtype": normalize_sms_channel(row.get("subtype")),
+        "sender": row.get("sender"),
+        "date": row["date"],
+        "short_description": row["short_description"],
+        "details": row.get("details") or "",
+        "created_at": parse_datetime(row["created_at"]),
+        "updated_at": parse_datetime(row["updated_at"]),
+    }
+
+
+def row_to_outreach_plan_step(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "job_id": row["job_id"],
+        "type": normalize_sms_channel(row["type"]),
+        "sender": row["sender"],
+        "headline": normalize_sms_headline(row["headline"], step_type=row["type"]),
+        "scheduled_for": row["scheduled_for"],
+        "created_at": parse_datetime(row["created_at"]),
+        "updated_at": parse_datetime(row["updated_at"]),
+    }
+
+
+def row_to_outreach_plan_draft(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "job_id": row["job_id"],
+        "plan_step_id": row["plan_step_id"],
+        "subject": row.get("subject"),
+        "body": row["body"],
+        "is_user_edited": bool(row["is_user_edited"]),
+        "created_at": parse_datetime(row["created_at"]),
+        "updated_at": parse_datetime(row["updated_at"]),
+    }
+
+
+@dataclass(slots=True)
+class SupabaseDocumentRepository:
+    settings: Settings
+
+    def __post_init__(self) -> None:
+        if not self.settings.supabase_url or not self.settings.supabase_service_role_key:
+            raise RuntimeError("Supabase backend storage is not configured.")
+        self._rest_base_url = self.settings.supabase_url.rstrip("/") + "/rest/v1"
+        self._storage_base_url = self.settings.supabase_url.rstrip("/") + "/storage/v1"
+        self._headers = {
+            "apikey": self.settings.supabase_service_role_key,
+            "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
+        }
+
+    def _rest_request(
+        self,
+        method: str,
+        table: str,
+        *,
+        params: dict[str, str] | None = None,
+        json_body: Any = None,
+        return_representation: bool = True,
+        object_response: bool = False,
+    ) -> Any:
+        headers = dict(self._headers)
+        if return_representation:
+            headers["Prefer"] = "return=representation"
+        if object_response:
+            headers["Accept"] = "application/vnd.pgrst.object+json"
+        response = httpx.request(
+            method,
+            f"{self._rest_base_url}/{table}",
+            params=params,
+            json=json_body,
+            headers=headers,
+            timeout=60.0,
+        )
+        if object_response and response.status_code == 406:
+            return None
+        response.raise_for_status()
+        if not response.content:
+            return None
+        return response.json()
+
+    def _storage_request(
+        self,
+        method: str,
+        storage_path: str,
+        *,
+        content: bytes | None = None,
+        mime_type: str | None = None,
+    ) -> httpx.Response:
+        headers = dict(self._headers)
+        if mime_type:
+            headers["Content-Type"] = mime_type
+        if method.upper() in {"POST", "PUT"}:
+            headers["x-upsert"] = "true"
+        response = httpx.request(
+            method,
+            f"{self._storage_base_url}/object/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}",
+            content=content,
+            headers=headers,
+            timeout=120.0,
+        )
+        return response
+
+    def build_storage_path(self, job_id: str, document_id: str, extension: str) -> str:
+        return f"jobs/{job_id}/{document_id}{extension}"
+
+    def write_file(self, storage_path: str, content: bytes, mime_type: str) -> None:
+        response = self._storage_request("POST", storage_path, content=content, mime_type=mime_type)
+        response.raise_for_status()
+
+    def read_file(self, storage_path: str) -> bytes:
+        response = httpx.get(
+            f"{self._storage_base_url}/object/authenticated/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}",
+            headers=self._headers,
+            timeout=120.0,
+        )
+        if response.status_code == 404:
+            raise FileNotFoundError(storage_path)
+        response.raise_for_status()
+        return response.content
+
+    def delete_storage_path(self, storage_path: str) -> bool:
+        response = self._storage_request("DELETE", storage_path)
+        if response.status_code == 404:
+            return False
+        response.raise_for_status()
+        return True
+
+    def list_all(self) -> list[dict[str, Any]]:
+        rows = self._rest_request("GET", "documents", params={"select": "*"})
+        documents = [row_to_document(row) for row in rows or []]
+        documents.sort(key=lambda item: item["created_at"], reverse=True)
+        self._attach_timeline_links(documents)
+        return documents
+
+    def list_for_job(self, job_id: str) -> list[dict[str, Any]]:
+        rows = self._rest_request(
+            "GET",
+            "documents",
+            params={"select": "*", "job_id": f"eq.{job_id}"},
+        )
+        documents = [row_to_document(row) for row in rows or []]
+        documents.sort(key=lambda item: item["created_at"], reverse=True)
+        self._attach_timeline_links(documents)
+        return documents
+
+    def get(self, document_id: str) -> dict[str, Any] | None:
+        row = self._rest_request(
+            "GET",
+            "documents",
+            params={"select": "*", "id": f"eq.{document_id}"},
+            object_response=True,
+        )
+        if not row:
+            return None
+        document = row_to_document(row)
+        document["linked_timeline_item_ids"] = self.list_linked_timeline_item_ids(document_id)
+        return document
+
+    def create(
+        self,
+        *,
+        job_id: str,
+        original_filename: str,
+        mime_type: str,
+        storage_path: str,
+    ) -> dict[str, Any]:
+        document_id = str(uuid4())
+        now = utc_now()
+        payload = {
+            "id": document_id,
+            "job_id": job_id,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "storage_path": storage_path,
+            "status": "processing",
+            "title": filename_stem(original_filename),
+            "communication_date": None,
+            "description": "",
+            "transcript": "",
+            "extraction_error": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+        rows = self._rest_request("POST", "documents", json_body=payload)
+        document = row_to_document((rows or [payload])[0])
+        document["linked_timeline_item_ids"] = []
+        return document
+
+    def update_fields(self, document_id: str, **fields: Any) -> dict[str, Any]:
+        if not fields:
+            document = self.get(document_id)
+            if document is None:
+                raise KeyError(document_id)
+            return document
+
+        allowed = {
+            "status",
+            "storage_path",
+            "title",
+            "communication_date",
+            "description",
+            "transcript",
+            "extraction_error",
+        }
+        invalid = set(fields) - allowed
+        if invalid:
+            raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")
+
+        fields["updated_at"] = utc_now()
+        rows = self._rest_request(
+            "PATCH",
+            "documents",
+            params={"id": f"eq.{document_id}"},
+            json_body=fields,
+        )
+        if not rows:
+            raise KeyError(document_id)
+        document = self.get(document_id)
+        if document is None:
+            raise KeyError(document_id)
+        return document
+
+    def delete(self, document_id: str) -> dict[str, Any]:
+        document = self.get(document_id)
+        if document is None:
+            raise KeyError(document_id)
+        self._rest_request("DELETE", "documents", params={"id": f"eq.{document_id}"})
+        storage_path = str(document["storage_path"])
+        if storage_path:
+            try:
+                self.delete_storage_path(storage_path)
+            except httpx.HTTPError:
+                pass
+        return document
+
+    def list_timeline_for_job(self, job_id: str) -> list[dict[str, Any]]:
+        rows = self._rest_request(
+            "GET",
+            "timeline_items",
+            params={"select": "*", "job_id": f"eq.{job_id}"},
+        )
+        timeline_items = [row_to_timeline_item(row) for row in rows or []]
+        timeline_items.sort(key=lambda item: (item["date"], item["created_at"]))
+        self._attach_document_links(timeline_items)
+        return timeline_items
+
+    def get_timeline_item(self, timeline_item_id: str) -> dict[str, Any] | None:
+        row = self._rest_request(
+            "GET",
+            "timeline_items",
+            params={"select": "*", "id": f"eq.{timeline_item_id}"},
+            object_response=True,
+        )
+        if not row:
+            return None
+        timeline_item = row_to_timeline_item(row)
+        timeline_item["linked_document_ids"] = self.list_linked_document_ids(timeline_item_id)
+        return timeline_item
+
+    def create_timeline_item(
+        self,
+        *,
+        job_id: str,
+        category: str,
+        subtype: str | None,
+        sender: str | None,
+        date: str,
+        short_description: str,
+        details: str,
+        timeline_item_id: str | None = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
+    ) -> dict[str, Any]:
+        item_id = timeline_item_id or str(uuid4())
+        now = created_at or utc_now()
+        payload = {
+            "id": item_id,
+            "job_id": job_id,
+            "category": category,
+            "subtype": normalize_sms_channel(subtype),
+            "sender": sender,
+            "date": date,
+            "short_description": short_description,
+            "details": details,
+            "created_at": now,
+            "updated_at": updated_at or now,
+        }
+        rows = self._rest_request("POST", "timeline_items", json_body=payload)
+        timeline_item = row_to_timeline_item((rows or [payload])[0])
+        timeline_item["linked_document_ids"] = []
+        return timeline_item
+
+    def update_timeline_item(self, timeline_item_id: str, **fields: Any) -> dict[str, Any]:
+        if not fields:
+            timeline_item = self.get_timeline_item(timeline_item_id)
+            if timeline_item is None:
+                raise KeyError(timeline_item_id)
+            return timeline_item
+
+        allowed = {"category", "subtype", "sender", "date", "short_description", "details"}
+        invalid = set(fields) - allowed
+        if invalid:
+            raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")
+
+        if "subtype" in fields:
+            fields["subtype"] = normalize_sms_channel(fields["subtype"])
+        fields["updated_at"] = utc_now()
+        rows = self._rest_request(
+            "PATCH",
+            "timeline_items",
+            params={"id": f"eq.{timeline_item_id}"},
+            json_body=fields,
+        )
+        if not rows:
+            raise KeyError(timeline_item_id)
+        timeline_item = self.get_timeline_item(timeline_item_id)
+        if timeline_item is None:
+            raise KeyError(timeline_item_id)
+        return timeline_item
+
+    def delete_timeline_item(self, timeline_item_id: str) -> dict[str, Any]:
+        timeline_item = self.get_timeline_item(timeline_item_id)
+        if timeline_item is None:
+            raise KeyError(timeline_item_id)
+        self._rest_request("DELETE", "timeline_items", params={"id": f"eq.{timeline_item_id}"})
+        return timeline_item
+
+    def list_outreach_plan_steps(self, job_id: str) -> list[dict[str, Any]]:
+        rows = self._rest_request(
+            "GET",
+            "outreach_plan_steps",
+            params={"select": "*", "job_id": f"eq.{job_id}"},
+        )
+        steps = [row_to_outreach_plan_step(row) for row in rows or []]
+        steps.sort(key=lambda item: (item["scheduled_for"], item["created_at"]))
+        return steps
+
+    def list_outreach_plan_drafts(self, job_id: str) -> list[dict[str, Any]]:
+        rows = self._rest_request(
+            "GET",
+            "outreach_plan_drafts",
+            params={"select": "*", "job_id": f"eq.{job_id}"},
+        )
+        drafts = [row_to_outreach_plan_draft(row) for row in rows or []]
+        drafts.sort(key=lambda item: (item["updated_at"], item["created_at"]), reverse=True)
+        return drafts
+
+    def get_outreach_plan_draft(self, draft_id: str) -> dict[str, Any] | None:
+        row = self._rest_request(
+            "GET",
+            "outreach_plan_drafts",
+            params={"select": "*", "id": f"eq.{draft_id}"},
+            object_response=True,
+        )
+        return row_to_outreach_plan_draft(row) if row else None
+
+    def list_outreach_plan_steps_with_drafts(self, job_id: str) -> list[dict[str, Any]]:
+        steps = self.list_outreach_plan_steps(job_id)
+        drafts_by_step_id = {
+            str(draft["plan_step_id"]): draft
+            for draft in self.list_outreach_plan_drafts(job_id)
+        }
+        return [
+            {
+                **step,
+                "draft": drafts_by_step_id.get(str(step["id"])),
+            }
+            for step in steps
+        ]
+
+    def replace_outreach_plan_steps(
+        self,
+        job_id: str,
+        *,
+        steps: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        self._rest_request("DELETE", "outreach_plan_drafts", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+        self._rest_request("DELETE", "outreach_plan_steps", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+        if steps:
+            payload = [
+                {
+                    "id": step["id"],
+                    "job_id": job_id,
+                    "type": normalize_sms_channel(step["type"]),
+                    "sender": step["sender"],
+                    "headline": step["headline"],
+                    "scheduled_for": step["scheduled_for"],
+                    "created_at": step["created_at"],
+                    "updated_at": step["updated_at"],
+                }
+                for step in steps
+            ]
+            self._rest_request("POST", "outreach_plan_steps", json_body=payload)
+        return self.list_outreach_plan_steps(job_id)
+
+    def create_outreach_plan_drafts(
+        self,
+        job_id: str,
+        *,
+        drafts: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if not drafts:
+            return []
+
+        now = utc_now()
+        payload = []
+        created_ids: list[str] = []
+        for draft in drafts:
+            draft_id = str(uuid4())
+            created_ids.append(draft_id)
+            payload.append(
+                {
+                    "id": draft_id,
+                    "job_id": job_id,
+                    "plan_step_id": draft["plan_step_id"],
+                    "subject": draft.get("subject"),
+                    "body": draft["body"],
+                    "is_user_edited": bool(draft.get("is_user_edited")),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+
+        self._rest_request("POST", "outreach_plan_drafts", json_body=payload)
+        created_by_id = {
+            str(draft["id"]): draft
+            for draft in (self.get_outreach_plan_draft(draft_id) for draft_id in created_ids)
+            if draft is not None
+        }
+        return [created_by_id[draft_id] for draft_id in created_ids if draft_id in created_by_id]
+
+    def update_outreach_plan_draft(self, draft_id: str, **fields: Any) -> dict[str, Any]:
+        if not fields:
+            draft = self.get_outreach_plan_draft(draft_id)
+            if draft is None:
+                raise KeyError(draft_id)
+            return draft
+
+        allowed = {"subject", "body", "is_user_edited"}
+        invalid = set(fields) - allowed
+        if invalid:
+            raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")
+
+        if "is_user_edited" in fields:
+            fields["is_user_edited"] = bool(fields["is_user_edited"])
+        fields["updated_at"] = utc_now()
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_drafts",
+            params={"id": f"eq.{draft_id}"},
+            json_body=fields,
+        )
+        if not rows:
+            raise KeyError(draft_id)
+        draft = self.get_outreach_plan_draft(draft_id)
+        if draft is None:
+            raise KeyError(draft_id)
+        return draft
+
+    def delete_job(self, job_id: str) -> dict[str, int | str]:
+        documents = self.list_for_job(job_id)
+        timeline_items = self.list_timeline_for_job(job_id)
+        unique_storage_paths = sorted({str(document["storage_path"]) for document in documents if str(document["storage_path"])})
+
+        self._rest_request("DELETE", "outreach_plan_drafts", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+        self._rest_request("DELETE", "outreach_plan_steps", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+        self._rest_request("DELETE", "documents", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+        self._rest_request("DELETE", "timeline_items", params={"job_id": f"eq.{job_id}"}, return_representation=False)
+
+        deleted_file_count = 0
+        for storage_path in unique_storage_paths:
+            try:
+                if self.delete_storage_path(storage_path):
+                    deleted_file_count += 1
+            except httpx.HTTPError:
+                continue
+
+        return {
+            "job_id": job_id,
+            "deleted_document_count": len(documents),
+            "deleted_timeline_item_count": len(timeline_items),
+            "deleted_file_count": deleted_file_count,
+        }
+
+    def link_document_to_timeline_item(self, document_id: str, timeline_item_id: str) -> None:
+        existing = set(self.list_linked_timeline_item_ids(document_id))
+        if timeline_item_id in existing:
+            return
+        payload = {
+            "document_id": document_id,
+            "timeline_item_id": timeline_item_id,
+            "created_at": utc_now(),
+        }
+        self._rest_request("POST", "document_timeline_items", json_body=payload)
+
+    def list_linked_timeline_item_ids(self, document_id: str) -> list[str]:
+        rows = self._rest_request(
+            "GET",
+            "document_timeline_items",
+            params={"select": "timeline_item_id,created_at", "document_id": f"eq.{document_id}"},
+        )
+        rows = rows or []
+        rows.sort(key=lambda row: parse_datetime(row["created_at"]))
+        return [str(row["timeline_item_id"]) for row in rows]
+
+    def list_linked_document_ids(self, timeline_item_id: str) -> list[str]:
+        rows = self._rest_request(
+            "GET",
+            "document_timeline_items",
+            params={"select": "document_id,created_at", "timeline_item_id": f"eq.{timeline_item_id}"},
+        )
+        rows = rows or []
+        rows.sort(key=lambda row: parse_datetime(row["created_at"]))
+        return [str(row["document_id"]) for row in rows]
+
+    def _attach_timeline_links(self, documents: list[dict[str, Any]]) -> None:
+        if not documents:
+            return
+        rows = self._rest_request(
+            "GET",
+            "document_timeline_items",
+            params={
+                "select": "document_id,timeline_item_id,created_at",
+                "document_id": in_filter([str(document["id"]) for document in documents]),
+            },
+        )
+        links_by_document_id: dict[str, list[str]] = {str(document["id"]): [] for document in documents}
+        for row in sorted(rows or [], key=lambda item: parse_datetime(item["created_at"])):
+            links_by_document_id[str(row["document_id"])].append(str(row["timeline_item_id"]))
+        for document in documents:
+            document["linked_timeline_item_ids"] = links_by_document_id.get(str(document["id"]), [])
+
+    def _attach_document_links(self, timeline_items: list[dict[str, Any]]) -> None:
+        if not timeline_items:
+            return
+        rows = self._rest_request(
+            "GET",
+            "document_timeline_items",
+            params={
+                "select": "timeline_item_id,document_id,created_at",
+                "timeline_item_id": in_filter([str(item["id"]) for item in timeline_items]),
+            },
+        )
+        links_by_timeline_item_id: dict[str, list[str]] = {str(item["id"]): [] for item in timeline_items}
+        for row in sorted(rows or [], key=lambda item: parse_datetime(item["created_at"])):
+            links_by_timeline_item_id[str(row["timeline_item_id"])].append(str(row["document_id"]))
+        for timeline_item in timeline_items:
+            timeline_item["linked_document_ids"] = links_by_timeline_item_id.get(str(timeline_item["id"]), [])

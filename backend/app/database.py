@@ -73,6 +73,9 @@ ON outreach_plan_steps (job_id, scheduled_for ASC, created_at ASC);
 
 
 def init_db(settings: Settings) -> None:
+    if settings.uses_supabase:
+        return
+
     settings.ensure_directories()
     with connect(settings) as conn:
         conn.executescript(SCHEMA)

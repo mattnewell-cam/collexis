@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import re
 from datetime import datetime
@@ -455,8 +456,8 @@ def normalize_extraction(
     }
 
 
-def build_image_data_url(path: Path, mime_type: str) -> str:
-    encoded = base64.b64encode(path.read_bytes()).decode("utf-8")
+def build_image_data_url(content: bytes, mime_type: str) -> str:
+    encoded = base64.b64encode(content).decode("utf-8")
     return f"data:{mime_type};base64,{encoded}"
 
 
@@ -475,13 +476,14 @@ def extract_document_metadata(
         raise RuntimeError("OPENAI_API_KEY is not configured.")
 
     client = OpenAI(api_key=settings.openai_api_key)
-    path = Path(str(document["storage_path"]))
+    repository = DocumentRepository(settings)
+    file_bytes = repository.read_file(str(document["storage_path"]))
     mime_type = str(document["mime_type"])
     filename = str(document["original_filename"])
     extraction_model = extraction_model_for_profile(processing_profile)
 
     if mime_type == "application/pdf":
-        with path.open("rb") as file_handle:
+        with io.BytesIO(file_bytes) as file_handle:
             uploaded_file = client.files.create(
                 file=(filename, file_handle, mime_type),
                 purpose="user_data",
@@ -515,7 +517,7 @@ def extract_document_metadata(
                         {"type": "input_text", "text": build_extraction_prompt()},
                         {
                             "type": "input_image",
-                            "image_url": build_image_data_url(path, mime_type),
+                            "image_url": build_image_data_url(file_bytes, mime_type),
                         },
                     ],
                 }

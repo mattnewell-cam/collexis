@@ -6,7 +6,7 @@ from typing import Callable
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from .config import Settings
 from .database import init_db
@@ -273,17 +273,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if str(timeline_item["job_id"]) != job_id:
                 raise HTTPException(status_code=400, detail="Timeline item does not belong to this job.")
 
-        placeholder_path = settings_for_request.uploads_dir / f"pending{extension}"
+        placeholder_path = f"pending{extension}"
         document = repository.create(
             job_id=job_id,
             original_filename=file.filename or "upload",
             mime_type=file.content_type or guess_mime_type(extension),
-            storage_path=str(placeholder_path),
+            storage_path=placeholder_path,
         )
 
-        final_path = settings_for_request.uploads_dir / f"{document['id']}{extension}"
-        final_path.write_bytes(await file.read())
-        document = repository.update_fields(document["id"], storage_path=str(final_path))
+        final_path = repository.build_storage_path(job_id, str(document["id"]), extension)
+        repository.write_file(final_path, await file.read(), str(document["mime_type"]))
+        document = repository.update_fields(document["id"], storage_path=final_path)
         if timeline_item_id is not None:
             repository.link_document_to_timeline_item(document["id"], timeline_item_id)
             document = repository.get(document["id"]) or document
@@ -371,21 +371,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return TimelineItemResponse.model_validate(deleted)
 
     @app.get("/documents/{document_id}/file")
-    def get_document_file(document_id: str) -> FileResponse:
+    def get_document_file(document_id: str) -> Response:
         repository = DocumentRepository(app.state.settings)
         document = repository.get(document_id)
         if document is None:
             raise HTTPException(status_code=404, detail="Document not found.")
 
-        file_path = Path(str(document["storage_path"]))
-        if not file_path.exists():
+        try:
+            file_content = repository.read_file(str(document["storage_path"]))
+        except FileNotFoundError:
             raise HTTPException(status_code=404, detail="Document file not found.")
 
-        return FileResponse(
-            path=file_path,
+        return Response(
+            content=file_content,
             media_type=str(document["mime_type"]),
-            filename=str(document["original_filename"]),
-            content_disposition_type="inline",
+            headers={
+                "Content-Disposition": f'inline; filename="{str(document["original_filename"])}"',
+            },
         )
 
     return app
