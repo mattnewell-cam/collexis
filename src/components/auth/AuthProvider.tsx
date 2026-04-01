@@ -93,24 +93,54 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (session?.user.email) {
-        await fetchAndSetUser(session.user.email);
-      } else {
-        setUser(null);
+    let cancelled = false;
+
+    const loadInitialSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (cancelled) return;
+
+        if (session?.user.email) {
+          await fetchAndSetUser(session.user.email);
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('[AuthProvider] Failed to load initial session:', error);
+        if (!cancelled) {
+          setUser(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
+    };
+
+    void loadInitialSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      try {
+        if (session?.user.email) {
+          await fetchAndSetUser(session.user.email);
+        } else {
+          setUser(null);
+        }
+      } catch (error) {
+        console.error('[AuthProvider] Failed during auth state change:', error);
+        setUser(null);
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user.email) {
-        await fetchAndSetUser(session.user.email);
-      } else {
-        setUser(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [supabase, fetchAndSetUser]);
 
   const signIn = async ({ email, password }: Credentials): Promise<AuthResult> => {
