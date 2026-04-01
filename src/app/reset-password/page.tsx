@@ -30,16 +30,18 @@ export default function ResetPasswordPage() {
     setBusy(false);
 
     if (updateError) {
-      setError('Could not update your password. The link may have expired — request a new one.');
+      setError('Could not update your password. The link may have expired - request a new one.');
       return;
     }
 
     setDone(true);
-    setTimeout(() => { window.location.replace('/console'); }, 2000);
+    setTimeout(() => {
+      window.location.replace('/console');
+    }, 2000);
   };
 
   return (
-    <main className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,#f9fffe_0%,#f3f8fb_100%)] flex items-center justify-center px-4">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[linear-gradient(180deg,#f9fffe_0%,#f3f8fb_100%)] px-4">
       <div
         className="pointer-events-none absolute right-[-12rem] top-[-8rem] h-[28rem] w-[28rem] rounded-full"
         style={{ background: 'radial-gradient(circle, rgba(42,191,170,0.18) 0%, transparent 68%)' }}
@@ -61,7 +63,7 @@ export default function ResetPasswordPage() {
               </svg>
             </div>
             <h2 className="text-xl font-semibold text-slate-950">Password updated</h2>
-            <p className="mt-2 text-sm text-slate-500">Taking you to the console…</p>
+            <p className="mt-2 text-sm text-slate-500">Taking you to the console...</p>
           </div>
         ) : (
           <>
@@ -109,7 +111,7 @@ export default function ResetPasswordPage() {
                 className="w-full rounded-2xl px-4 py-3.5 text-sm font-semibold text-white transition hover:opacity-95 active:opacity-90 disabled:opacity-60"
                 style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
               >
-                {busy ? 'Updating…' : 'Update password'}
+                {busy ? 'Updating...' : 'Update password'}
               </button>
             </form>
           </>
