@@ -1,8 +1,7 @@
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
+import { documentBackendOrigin } from '@/lib/documentBackend';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { findJobById, findJobsByPhone } from '@/lib/jobStore';
-
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 
 type TelnyxWebhookPayload = {
   data?: {
@@ -25,7 +24,7 @@ async function createInboundSmsTimelineItem(jobId: string, payload: NonNullable<
   const receivedAt = payload?.received_at?.trim() ?? new Date().toISOString();
   const messageId = payload?.id?.trim() ?? '';
 
-  await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendUrl), {
+  await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -52,7 +51,7 @@ async function regeneratePlan(jobId: string) {
   const job = await findJobById(jobId, supabase);
   if (!job) return;
 
-  await fetch(new URL(`/jobs/${jobId}/outreach-plan/generate`, documentBackendUrl), {
+  await fetch(new URL(`/jobs/${jobId}/outreach-plan/generate`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_snapshot: toApiJobSnapshot(job) }),

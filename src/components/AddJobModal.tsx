@@ -3,6 +3,7 @@
 import { useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { mergeJobWithIntakeSummary } from '@/lib/jobStore';
+import { documentBackendPath } from '@/lib/documentBackend';
 import type { Job, JobIntakeSummary } from '@/types/job';
 
 interface Props {
@@ -94,7 +95,7 @@ export default function AddJobModal({ open, onClose }: Props) {
     if (documentIds.length === 0) return;
 
     while (true) {
-      const response = await fetch(`/api/backend/jobs/${jobId}/documents`, { cache: 'no-store' });
+      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Could not check document processing.');
       }
@@ -173,7 +174,7 @@ export default function AddJobModal({ open, onClose }: Props) {
         formData.append('file', file);
         formData.append('processing_profile', 'job-intake');
 
-        const uploadResponse = await fetch(`/api/backend/jobs/${payload.job.id}/documents`, {
+        const uploadResponse = await fetch(documentBackendPath(`/jobs/${payload.job.id}/documents`), {
           method: 'POST',
           body: formData,
         });
@@ -193,7 +194,7 @@ export default function AddJobModal({ open, onClose }: Props) {
 
       let mergedJob = payload.job;
       try {
-        const summaryResponse = await fetch(`/api/backend/jobs/${payload.job.id}/intake-summary`, { cache: 'no-store' });
+        const summaryResponse = await fetch(documentBackendPath(`/jobs/${payload.job.id}/intake-summary`), { cache: 'no-store' });
         if (summaryResponse.ok) {
           const summary = mapApiJobIntakeSummary(await summaryResponse.json() as ApiJobIntakeSummary);
           mergedJob = mergeJobWithIntakeSummary(payload.job, summary);

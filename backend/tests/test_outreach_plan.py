@@ -11,6 +11,7 @@ from backend.app.main import create_app
 from backend.app.outreach_drafting import ensure_outreach_plan_drafts
 from backend.app.outreach_planning import generate_outreach_plan
 from backend.app.repository import DocumentRepository
+from backend.app.repository_supabase import SupabaseDocumentRepository
 from backend.app.scheduled_outreach import process_due_outreach_once
 from backend.app.schemas import (
     JobSnapshot,
@@ -1127,3 +1128,54 @@ def test_process_due_outreach_sends_due_email_and_marks_step_sent(tmp_path: Path
     timeline_items = repository.list_timeline_for_job("job-123")
     assert timeline_items[-1]["short_description"] == "Invoice reminder"
     assert "Please arrange payment today." in timeline_items[-1]["details"]
+
+
+def test_supabase_compatibility_marks_sent_when_updated_at_changes() -> None:
+    repository = object.__new__(SupabaseDocumentRepository)
+    repository._has_outreach_delivery_state = False
+
+    pending_step = repository._apply_delivery_state_compatibility(
+        {
+            "id": "step-pending",
+            "job_id": "job-123",
+            "type": "email",
+            "sender": "collexis",
+            "headline": "Pending email",
+            "scheduled_for": "2026-04-02T09:15:00+01:00",
+            "recipient_emails": [],
+            "delivery_status": "pending",
+            "processing_started_at": None,
+            "sent_at": None,
+            "failed_at": None,
+            "attempt_count": 0,
+            "last_error": None,
+            "provider_message_id": None,
+            "created_at": datetime.fromisoformat("2026-04-02T08:15:00+00:00"),
+            "updated_at": datetime.fromisoformat("2026-04-02T08:15:00+00:00"),
+        }
+    )
+    assert pending_step["delivery_status"] == "pending"
+    assert pending_step["sent_at"] is None
+
+    sent_step = repository._apply_delivery_state_compatibility(
+        {
+            "id": "step-sent",
+            "job_id": "job-123",
+            "type": "email",
+            "sender": "collexis",
+            "headline": "Sent email",
+            "scheduled_for": "2026-04-02T09:15:00+01:00",
+            "recipient_emails": [],
+            "delivery_status": "pending",
+            "processing_started_at": None,
+            "sent_at": None,
+            "failed_at": None,
+            "attempt_count": 0,
+            "last_error": None,
+            "provider_message_id": None,
+            "created_at": datetime.fromisoformat("2026-04-02T08:15:00+00:00"),
+            "updated_at": datetime.fromisoformat("2026-04-01T22:16:00+00:00"),
+        }
+    )
+    assert sent_step["delivery_status"] == "sent"
+    assert sent_step["sent_at"] == "2026-04-01T22:16:00+00:00"

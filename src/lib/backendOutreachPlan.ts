@@ -1,6 +1,7 @@
 import type { Job } from '@/types/job';
 import type { PostNowDraft, PostNowStep } from '@/types/postNowPlan';
 import { toApiJobSnapshot } from './apiJobSnapshot';
+import { documentBackendPath } from './documentBackend';
 
 type ApiOutreachPlanDraft = {
   id: string;
@@ -88,7 +89,7 @@ export function mapApiOutreachPlanStep(step: ApiOutreachPlanStep): PostNowStep {
 }
 
 export async function fetchOutreachPlan(jobId: string): Promise<PostNowStep[]> {
-  const response = await fetch(`/api/backend/jobs/${jobId}/outreach-plan`, {
+  const response = await fetch(documentBackendPath(`/jobs/${jobId}/outreach-plan`), {
     cache: 'no-store',
   });
   ensureResponseOk(response, 'Could not load outreach plan.');
@@ -97,7 +98,7 @@ export async function fetchOutreachPlan(jobId: string): Promise<PostNowStep[]> {
 }
 
 export async function ensureOutreachPlanDrafts(job: Job): Promise<PostNowStep[]> {
-  const response = await fetch(`/api/backend/jobs/${job.id}/outreach-plan/drafts/ensure`, {
+  const response = await fetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/drafts/ensure`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -110,7 +111,7 @@ export async function ensureOutreachPlanDrafts(job: Job): Promise<PostNowStep[]>
 }
 
 export async function generateOutreachPlan(job: Job): Promise<PostNowStep[]> {
-  const response = await fetch(`/api/backend/jobs/${job.id}/outreach-plan/generate`, {
+  const response = await fetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/generate`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -175,7 +176,7 @@ export async function updateOutreachPlanDraft(
   draftId: string,
   payload: { subject?: string; body: string },
 ): Promise<PostNowDraft> {
-  const response = await fetch(`/api/backend/outreach-plan-drafts/${draftId}`, {
+  const response = await fetch(documentBackendPath(`/outreach-plan-drafts/${draftId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server';
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
+import { documentBackendOrigin } from '@/lib/documentBackend';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { findJobById, findJobsByEmail, getAllJobs } from '@/lib/jobStore';
-
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 
 type IncomingReplyPayload = {
   job_id?: unknown;
@@ -70,7 +69,7 @@ export async function POST(request: Request) {
     if (matchingJobs.length === 1) {
       [job] = matchingJobs;
     } else {
-      const inferenceResponse = await fetch(new URL('/jobs/infer-inbound-email-job', documentBackendUrl), {
+      const inferenceResponse = await fetch(new URL('/jobs/infer-inbound-email-job', documentBackendOrigin()), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const backendResponse = await fetch(new URL(`/jobs/${job.id}/inbound-email-replies`, documentBackendUrl), {
+  const backendResponse = await fetch(new URL(`/jobs/${job.id}/inbound-email-replies`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

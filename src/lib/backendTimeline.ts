@@ -1,5 +1,6 @@
 import type { Communication } from '@/types/communication';
 import { normalizeCommunicationDate } from './communicationDates';
+import { documentBackendPath } from './documentBackend';
 
 export type ApiTimelineItem = {
   id: string;
@@ -47,7 +48,7 @@ function toApiPayload(comm: Communication) {
 }
 
 export async function fetchTimelineItems(jobId: string): Promise<Communication[]> {
-  const response = await fetch(`/api/backend/jobs/${jobId}/timeline-items`, {
+  const response = await fetch(documentBackendPath(`/jobs/${jobId}/timeline-items`), {
     cache: 'no-store',
   });
   ensureResponseOk(response, 'Could not load timeline items.');
@@ -56,7 +57,7 @@ export async function fetchTimelineItems(jobId: string): Promise<Communication[]
 }
 
 export async function createTimelineItem(jobId: string, comm: Communication): Promise<Communication> {
-  const response = await fetch(`/api/backend/jobs/${jobId}/timeline-items`, {
+  const response = await fetch(documentBackendPath(`/jobs/${jobId}/timeline-items`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toApiPayload(comm)),
@@ -66,7 +67,7 @@ export async function createTimelineItem(jobId: string, comm: Communication): Pr
 }
 
 export async function updateTimelineItem(comm: Communication): Promise<Communication> {
-  const response = await fetch(`/api/backend/timeline-items/${comm.id}`, {
+  const response = await fetch(documentBackendPath(`/timeline-items/${comm.id}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(toApiPayload(comm)),
@@ -79,7 +80,7 @@ export async function linkDocumentToTimelineItem(
   timelineItemId: string,
   documentId: string,
 ): Promise<Communication> {
-  const response = await fetch(`/api/backend/timeline-items/${timelineItemId}/documents/${documentId}`, {
+  const response = await fetch(documentBackendPath(`/timeline-items/${timelineItemId}/documents/${documentId}`), {
     method: 'POST',
   });
   ensureResponseOk(response, 'Could not relate document.');
@@ -87,7 +88,7 @@ export async function linkDocumentToTimelineItem(
 }
 
 export async function deleteTimelineItem(timelineItemId: string): Promise<void> {
-  const response = await fetch(`/api/backend/timeline-items/${timelineItemId}`, {
+  const response = await fetch(documentBackendPath(`/timeline-items/${timelineItemId}`), {
     method: 'DELETE',
   });
   ensureResponseOk(response, 'Could not delete timeline item.');

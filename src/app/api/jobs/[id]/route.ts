@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
+import { documentBackendOrigin } from '@/lib/documentBackend';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById, updateJob, deleteJob } from '@/lib/jobStore';
-
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 
 export async function PATCH(
   request: Request,
@@ -52,7 +51,7 @@ export async function DELETE(
   let backendResponse: Response;
 
   try {
-    backendResponse = await fetch(new URL(`/jobs/${id}`, documentBackendUrl), {
+    backendResponse = await fetch(new URL(`/jobs/${id}`, documentBackendOrigin()), {
       method: 'DELETE',
     });
   } catch {

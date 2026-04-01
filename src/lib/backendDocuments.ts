@@ -1,4 +1,5 @@
 import type { DocumentRecord } from '@/types/document';
+import { documentBackendPath } from './documentBackend';
 
 type ApiDocumentRecord = {
   id: string;
@@ -43,7 +44,7 @@ export function mapApiDocument(document: ApiDocumentRecord): DocumentRecord {
 }
 
 export async function fetchJobDocuments(jobId: string): Promise<DocumentRecord[]> {
-  const response = await fetch(`/api/backend/jobs/${jobId}/documents`, { cache: 'no-store' });
+  const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
   ensureResponseOk(response, 'Could not load documents.');
   const payload = await response.json() as ApiDocumentRecord[];
   return payload.map(mapApiDocument);
@@ -60,7 +61,7 @@ export async function uploadJobDocument(
     formData.append('timeline_item_id', timelineItemId);
   }
 
-  const response = await fetch(`/api/backend/jobs/${jobId}/documents`, {
+  const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), {
     method: 'POST',
     body: formData,
   });

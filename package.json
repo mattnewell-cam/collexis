@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
-    "start": "next start",
+    "build": "node scripts/build-with-backend.mjs",
+    "build:next": "next build",
+    "start": "node scripts/start-with-backend.mjs",
+    "start:next": "next start",
     "lint": "eslint",
     "generate:sample-bundles": ".\\.venv\\Scripts\\python.exe scripts\\generate-sample-data-bundles.py",
     "generate:samples": "npx -y -p playwright node scripts/generate-sample-documents.mjs",

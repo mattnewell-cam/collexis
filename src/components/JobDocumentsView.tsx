@@ -2,6 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { documentBackendPath } from '@/lib/documentBackend';
 import type { DocumentRecord } from '@/types/document';
 
 type ApiDocumentRecord = {
@@ -122,7 +123,7 @@ function documentStatusColor(status: DocumentRecord['status']) {
 }
 
 function documentFileUrl(documentId: string) {
-  return `/api/backend/documents/${documentId}/file`;
+  return documentBackendPath(`/documents/${documentId}/file`);
 }
 
 export default function JobDocumentsView({ jobId }: { jobId: string }) {
@@ -168,7 +169,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     if (showLoading) setLoading(true);
 
     try {
-      const response = await fetch(`/api/backend/jobs/${jobId}/documents`, { cache: 'no-store' });
+      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
       if (!response.ok) {
         throw new Error('Could not load documents.');
       }
@@ -213,7 +214,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     ));
 
     try {
-      const response = await fetch(`/api/backend/documents/${documentId}`, {
+      const response = await fetch(documentBackendPath(`/documents/${documentId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -301,7 +302,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     formData.append('file', file);
 
     try {
-      const response = await fetch(`/api/backend/jobs/${jobId}/documents`, {
+      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), {
         method: 'POST',
         body: formData,
       });

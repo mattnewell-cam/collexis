@@ -2,31 +2,33 @@ services:
   - type: web
     name: collexis
     runtime: node
-    buildCommand: yarn && yarn build
-    startCommand: yarn start
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /backend/health
     envVars:
       - key: NODE_VERSION
         value: 20
-      - key: DOCUMENT_BACKEND_URL
-        value: https://collexis-backend.onrender.com
-  - type: web
-    name: collexis-backend
-    runtime: python
-    buildCommand: pip install -r backend/requirements.txt
-    startCommand: uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT
-    healthCheckPath: /health
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.8
       - key: COLLEXIS_DATA_DIR
         value: /var/data/collexis
-      - key: BREVO_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: SUPABASE_DOCUMENTS_BUCKET
         value: collexis-documents
+      - key: BREVO_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TELNYX_API_KEY
+        sync: false
+      - key: TELNYX_FROM_NUMBER
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_DEFAULT_COUNTRY_CODE
+        value: 44

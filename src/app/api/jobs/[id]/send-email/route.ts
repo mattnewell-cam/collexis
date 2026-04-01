@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
+import { documentBackendOrigin } from '@/lib/documentBackend';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
 import { brevoConfigurationError, sendBrevoEmail } from '@/lib/brevoEmail';
 import type { Communication } from '@/types/communication';
-
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
 
 type SendEmailPayload = {
@@ -72,7 +71,7 @@ function normalizeCommunication(value: unknown): Communication | null {
 }
 
 async function createTimelineItem(jobId: string, communication: Communication) {
-  const response = await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendUrl), {
+  const response = await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

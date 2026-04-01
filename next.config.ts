@@ -1,11 +1,15 @@
 import type { NextConfig } from "next";
 
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? "http://127.0.0.1:8000";
+const documentBackendUrl = "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
   async rewrites() {
     return {
       beforeFiles: [
+        {
+          source: '/backend/:path*',
+          destination: `${documentBackendUrl}/:path*`,
+        },
         {
           source: '/api/backend/:path*',
           destination: `${documentBackendUrl}/:path*`,

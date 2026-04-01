@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
@@ -135,6 +135,10 @@ def row_to_outreach_plan_draft(row: dict[str, Any]) -> dict[str, Any]:
 @dataclass(slots=True)
 class SupabaseDocumentRepository:
     settings: Settings
+    _rest_base_url: str = field(init=False)
+    _storage_base_url: str = field(init=False)
+    _headers: dict[str, str] = field(init=False)
+    _has_outreach_delivery_state: bool = field(init=False)
 
     def __post_init__(self) -> None:
         if not self.settings.supabase_url or not self.settings.supabase_service_role_key:
@@ -145,6 +149,43 @@ class SupabaseDocumentRepository:
             "apikey": self.settings.supabase_service_role_key,
             "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
         }
+        self._has_outreach_delivery_state = self._detect_outreach_delivery_state_support()
+
+    def _detect_outreach_delivery_state_support(self) -> bool:
+        response = httpx.get(
+            f"{self._rest_base_url}/outreach_plan_steps",
+            params={"select": "delivery_status", "limit": "1"},
+            headers=self._headers,
+            timeout=30.0,
+        )
+        if response.status_code < 400:
+            return True
+        payload = response.json() if response.content else {}
+        if response.status_code == 400 and "delivery_status" in str(payload.get("message") or ""):
+            return False
+        response.raise_for_status()
+        return True
+
+    def _apply_delivery_state_compatibility(self, step: dict[str, Any]) -> dict[str, Any]:
+        if self._has_outreach_delivery_state:
+            return step
+        created_at = parse_datetime(step["created_at"])
+        updated_at = parse_datetime(step["updated_at"])
+        if updated_at != created_at:
+            step["delivery_status"] = "sent"
+            step["sent_at"] = updated_at.isoformat()
+        else:
+            step["delivery_status"] = "pending"
+            step["sent_at"] = None
+        step["processing_started_at"] = None
+        step["failed_at"] = None
+        step["attempt_count"] = 0
+        step["last_error"] = None
+        step["provider_message_id"] = None
+        return step
+
+    def supports_outreach_delivery_state(self) -> bool:
+        return self._has_outreach_delivery_state
 
     def _rest_request(
         self,
@@ -429,7 +470,7 @@ class SupabaseDocumentRepository:
             "outreach_plan_steps",
             params={"select": "*", "job_id": f"eq.{job_id}"},
         )
-        steps = [row_to_outreach_plan_step(row) for row in rows or []]
+        steps = [self._apply_delivery_state_compatibility(row_to_outreach_plan_step(row)) for row in rows or []]
         steps.sort(key=lambda item: (item["scheduled_for"], item["created_at"]))
         return steps
 
@@ -450,7 +491,7 @@ class SupabaseDocumentRepository:
             params={"select": "*", "id": f"eq.{step_id}"},
             object_response=True,
         )
-        return row_to_outreach_plan_step(row) if row else None
+        return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(row)) if row else None
 
     def get_outreach_plan_draft(self, draft_id: str) -> dict[str, Any] | None:
         row = self._rest_request(
@@ -493,27 +534,32 @@ class SupabaseDocumentRepository:
         self._rest_request("DELETE", "outreach_plan_drafts", params={"job_id": f"eq.{job_id}"}, return_representation=False)
         self._rest_request("DELETE", "outreach_plan_steps", params={"job_id": f"eq.{job_id}"}, return_representation=False)
         if steps:
-            payload = [
-                {
+            payload = []
+            for step in steps:
+                row = {
                     "id": step["id"],
                     "job_id": job_id,
                     "type": normalize_sms_channel(step["type"]),
                     "sender": step["sender"],
                     "headline": step["headline"],
                     "scheduled_for": step["scheduled_for"],
-                    "recipient_emails": step.get("recipient_emails") or [],
-                    "delivery_status": step.get("delivery_status") or "pending",
-                    "processing_started_at": step.get("processing_started_at"),
-                    "sent_at": step.get("sent_at"),
-                    "failed_at": step.get("failed_at"),
-                    "attempt_count": int(step.get("attempt_count") or 0),
-                    "last_error": step.get("last_error"),
-                    "provider_message_id": step.get("provider_message_id"),
                     "created_at": step["created_at"],
                     "updated_at": step["updated_at"],
                 }
-                for step in steps
-            ]
+                if self._has_outreach_delivery_state:
+                    row.update(
+                        {
+                            "recipient_emails": step.get("recipient_emails") or [],
+                            "delivery_status": step.get("delivery_status") or "pending",
+                            "processing_started_at": step.get("processing_started_at"),
+                            "sent_at": step.get("sent_at"),
+                            "failed_at": step.get("failed_at"),
+                            "attempt_count": int(step.get("attempt_count") or 0),
+                            "last_error": step.get("last_error"),
+                            "provider_message_id": step.get("provider_message_id"),
+                        }
+                    )
+                payload.append(row)
             self._rest_request("POST", "outreach_plan_steps", json_body=payload)
         return self.list_outreach_plan_steps(job_id)
 
@@ -582,33 +628,52 @@ class SupabaseDocumentRepository:
         return draft
 
     def list_pending_outreach_plan_email_steps(self) -> list[dict[str, Any]]:
-        rows = self._rest_request(
-            "GET",
-            "outreach_plan_steps",
-            params={"select": "*", "type": "eq.email", "delivery_status": "eq.pending"},
-        )
-        steps = [row_to_outreach_plan_step(row) for row in rows or []]
+        params = {"select": "*", "type": "eq.email"}
+        if self._has_outreach_delivery_state:
+            params["delivery_status"] = "eq.pending"
+        rows = self._rest_request("GET", "outreach_plan_steps", params=params)
+        steps = [self._apply_delivery_state_compatibility(row_to_outreach_plan_step(row)) for row in rows or []]
+        if not self._has_outreach_delivery_state:
+            steps = [step for step in steps if str(step.get("delivery_status")) == "pending"]
         steps.sort(key=lambda item: (item["scheduled_for"], item["created_at"]))
         return steps
 
     def release_stale_outreach_plan_email_claims(self, stale_before: str) -> int:
+        if not self._has_outreach_delivery_state:
+            return 0
+        stale_before_dt = parse_datetime(stale_before)
         rows = self._rest_request(
-            "PATCH",
+            "GET",
             "outreach_plan_steps",
-            params={
-                "type": "eq.email",
-                "delivery_status": "eq.sending",
-                "processing_started_at": f"lt.{stale_before}",
-            },
-            json_body={
-                "delivery_status": "pending",
-                "processing_started_at": None,
-                "updated_at": utc_now(),
-            },
+            params={"select": "*", "type": "eq.email", "delivery_status": "eq.sending"},
         )
-        return len(rows or [])
+        stale_steps = [
+            row_to_outreach_plan_step(row)
+            for row in rows or []
+            if row.get("processing_started_at")
+            and parse_datetime(row["processing_started_at"]) < stale_before_dt
+        ]
+        released_count = 0
+        for step in stale_steps:
+            updated_rows = self._rest_request(
+                "PATCH",
+                "outreach_plan_steps",
+                params={"id": f"eq.{step['id']}", "delivery_status": "eq.sending"},
+                json_body={
+                    "delivery_status": "pending",
+                    "processing_started_at": None,
+                    "updated_at": utc_now(),
+                },
+            )
+            released_count += len(updated_rows or [])
+        return released_count
 
     def claim_outreach_plan_email_step(self, step_id: str, claimed_at: str) -> dict[str, Any] | None:
+        if not self._has_outreach_delivery_state:
+            step = self.get_outreach_plan_step(step_id)
+            if step is None or str(step.get("type")) != "email" or str(step.get("delivery_status")) != "pending":
+                return None
+            return step
         rows = self._rest_request(
             "PATCH",
             "outreach_plan_steps",
@@ -623,7 +688,7 @@ class SupabaseDocumentRepository:
         )
         if not rows:
             return None
-        claimed = row_to_outreach_plan_step(rows[0])
+        claimed = self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
         # Preserve incremental attempts across retries.
         current_attempts = int(claimed.get("attempt_count") or 0)
         if current_attempts <= 1:
@@ -631,6 +696,11 @@ class SupabaseDocumentRepository:
         return claimed
 
     def increment_claimed_outreach_plan_email_step_attempt(self, step_id: str, attempt_count: int, claimed_at: str) -> dict[str, Any]:
+        if not self._has_outreach_delivery_state:
+            step = self.get_outreach_plan_step(step_id)
+            if step is None:
+                raise KeyError(step_id)
+            return step
         rows = self._rest_request(
             "PATCH",
             "outreach_plan_steps",
@@ -643,23 +713,40 @@ class SupabaseDocumentRepository:
         )
         if not rows:
             raise KeyError(step_id)
-        return row_to_outreach_plan_step(rows[0])
+        return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
 
     def set_outreach_plan_step_recipient_emails(self, step_id: str, recipient_emails: list[str]) -> dict[str, Any]:
+        normalized_emails = [email.strip().lower() for email in recipient_emails if email.strip()]
+        if not self._has_outreach_delivery_state:
+            step = self.get_outreach_plan_step(step_id)
+            if step is None:
+                raise KeyError(step_id)
+            step["recipient_emails"] = normalized_emails
+            return step
         rows = self._rest_request(
             "PATCH",
             "outreach_plan_steps",
             params={"id": f"eq.{step_id}"},
             json_body={
-                "recipient_emails": [email.strip().lower() for email in recipient_emails if email.strip()],
+                "recipient_emails": normalized_emails,
                 "updated_at": utc_now(),
             },
         )
         if not rows:
             raise KeyError(step_id)
-        return row_to_outreach_plan_step(rows[0])
+        return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
 
     def mark_outreach_plan_step_sent(self, step_id: str, *, sent_at: str, provider_message_id: str | None) -> dict[str, Any]:
+        if not self._has_outreach_delivery_state:
+            rows = self._rest_request(
+                "PATCH",
+                "outreach_plan_steps",
+                params={"id": f"eq.{step_id}"},
+                json_body={"updated_at": sent_at},
+            )
+            if not rows:
+                raise KeyError(step_id)
+            return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
         rows = self._rest_request(
             "PATCH",
             "outreach_plan_steps",
@@ -676,9 +763,14 @@ class SupabaseDocumentRepository:
         )
         if not rows:
             raise KeyError(step_id)
-        return row_to_outreach_plan_step(rows[0])
+        return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
 
     def mark_outreach_plan_step_failed(self, step_id: str, *, failed_at: str, error_message: str) -> dict[str, Any]:
+        if not self._has_outreach_delivery_state:
+            step = self.get_outreach_plan_step(step_id)
+            if step is None:
+                raise KeyError(step_id)
+            return step
         rows = self._rest_request(
             "PATCH",
             "outreach_plan_steps",
@@ -693,7 +785,7 @@ class SupabaseDocumentRepository:
         )
         if not rows:
             raise KeyError(step_id)
-        return row_to_outreach_plan_step(rows[0])
+        return self._apply_delivery_state_compatibility(row_to_outreach_plan_step(rows[0]))
 
     def delete_job(self, job_id: str) -> dict[str, int | str]:
         documents = self.list_for_job(job_id)

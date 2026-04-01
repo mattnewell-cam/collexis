@@ -48,3 +48,4 @@ tmp-*.html
 next-env.d.ts
 backend/.data/
 backend/.data*/
+.collexis-runtime-venv/

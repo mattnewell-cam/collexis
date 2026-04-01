@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-
-const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
+import { documentBackendOrigin } from '@/lib/documentBackend';
 
 type ReceiveEmailReplyPayload = {
   job_snapshot?: unknown;
@@ -18,7 +17,7 @@ export async function POST(
     return NextResponse.json({ error: 'A reply payload is required.' }, { status: 400 });
   }
 
-  const response = await fetch(new URL(`/jobs/${id}/inbound-email-replies`, documentBackendUrl), {
+  const response = await fetch(new URL(`/jobs/${id}/inbound-email-replies`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
