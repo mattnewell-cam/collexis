@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -85,6 +86,19 @@ def row_to_timeline_item(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def row_to_outreach_plan_step(row: dict[str, Any]) -> dict[str, Any]:
+    raw_recipient_emails = row.get("recipient_emails") or []
+    if isinstance(raw_recipient_emails, str):
+        try:
+            recipient_emails = [
+                str(email).strip().lower()
+                for email in json.loads(raw_recipient_emails)
+                if str(email).strip()
+            ]
+        except json.JSONDecodeError:
+            recipient_emails = []
+    else:
+        recipient_emails = [str(email).strip().lower() for email in raw_recipient_emails if str(email).strip()]
+
     return {
         "id": row["id"],
         "job_id": row["job_id"],
@@ -92,6 +106,14 @@ def row_to_outreach_plan_step(row: dict[str, Any]) -> dict[str, Any]:
         "sender": row["sender"],
         "headline": normalize_sms_headline(row["headline"], step_type=row["type"]),
         "scheduled_for": row["scheduled_for"],
+        "recipient_emails": recipient_emails,
+        "delivery_status": row.get("delivery_status") or "pending",
+        "processing_started_at": row.get("processing_started_at"),
+        "sent_at": row.get("sent_at"),
+        "failed_at": row.get("failed_at"),
+        "attempt_count": int(row.get("attempt_count") or 0),
+        "last_error": row.get("last_error"),
+        "provider_message_id": row.get("provider_message_id"),
         "created_at": parse_datetime(row["created_at"]),
         "updated_at": parse_datetime(row["updated_at"]),
     }
@@ -421,11 +443,29 @@ class SupabaseDocumentRepository:
         drafts.sort(key=lambda item: (item["updated_at"], item["created_at"]), reverse=True)
         return drafts
 
+    def get_outreach_plan_step(self, step_id: str) -> dict[str, Any] | None:
+        row = self._rest_request(
+            "GET",
+            "outreach_plan_steps",
+            params={"select": "*", "id": f"eq.{step_id}"},
+            object_response=True,
+        )
+        return row_to_outreach_plan_step(row) if row else None
+
     def get_outreach_plan_draft(self, draft_id: str) -> dict[str, Any] | None:
         row = self._rest_request(
             "GET",
             "outreach_plan_drafts",
             params={"select": "*", "id": f"eq.{draft_id}"},
+            object_response=True,
+        )
+        return row_to_outreach_plan_draft(row) if row else None
+
+    def get_outreach_plan_draft_by_step_id(self, plan_step_id: str) -> dict[str, Any] | None:
+        row = self._rest_request(
+            "GET",
+            "outreach_plan_drafts",
+            params={"select": "*", "plan_step_id": f"eq.{plan_step_id}"},
             object_response=True,
         )
         return row_to_outreach_plan_draft(row) if row else None
@@ -461,6 +501,14 @@ class SupabaseDocumentRepository:
                     "sender": step["sender"],
                     "headline": step["headline"],
                     "scheduled_for": step["scheduled_for"],
+                    "recipient_emails": step.get("recipient_emails") or [],
+                    "delivery_status": step.get("delivery_status") or "pending",
+                    "processing_started_at": step.get("processing_started_at"),
+                    "sent_at": step.get("sent_at"),
+                    "failed_at": step.get("failed_at"),
+                    "attempt_count": int(step.get("attempt_count") or 0),
+                    "last_error": step.get("last_error"),
+                    "provider_message_id": step.get("provider_message_id"),
                     "created_at": step["created_at"],
                     "updated_at": step["updated_at"],
                 }
@@ -532,6 +580,120 @@ class SupabaseDocumentRepository:
         if draft is None:
             raise KeyError(draft_id)
         return draft
+
+    def list_pending_outreach_plan_email_steps(self) -> list[dict[str, Any]]:
+        rows = self._rest_request(
+            "GET",
+            "outreach_plan_steps",
+            params={"select": "*", "type": "eq.email", "delivery_status": "eq.pending"},
+        )
+        steps = [row_to_outreach_plan_step(row) for row in rows or []]
+        steps.sort(key=lambda item: (item["scheduled_for"], item["created_at"]))
+        return steps
+
+    def release_stale_outreach_plan_email_claims(self, stale_before: str) -> int:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={
+                "type": "eq.email",
+                "delivery_status": "eq.sending",
+                "processing_started_at": f"lt.{stale_before}",
+            },
+            json_body={
+                "delivery_status": "pending",
+                "processing_started_at": None,
+                "updated_at": utc_now(),
+            },
+        )
+        return len(rows or [])
+
+    def claim_outreach_plan_email_step(self, step_id: str, claimed_at: str) -> dict[str, Any] | None:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={"id": f"eq.{step_id}", "type": "eq.email", "delivery_status": "eq.pending"},
+            json_body={
+                "delivery_status": "sending",
+                "processing_started_at": claimed_at,
+                "failed_at": None,
+                "updated_at": claimed_at,
+                "attempt_count": 1,
+            },
+        )
+        if not rows:
+            return None
+        claimed = row_to_outreach_plan_step(rows[0])
+        # Preserve incremental attempts across retries.
+        current_attempts = int(claimed.get("attempt_count") or 0)
+        if current_attempts <= 1:
+            return claimed
+        return claimed
+
+    def increment_claimed_outreach_plan_email_step_attempt(self, step_id: str, attempt_count: int, claimed_at: str) -> dict[str, Any]:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={"id": f"eq.{step_id}", "delivery_status": "eq.sending"},
+            json_body={
+                "attempt_count": attempt_count,
+                "processing_started_at": claimed_at,
+                "updated_at": claimed_at,
+            },
+        )
+        if not rows:
+            raise KeyError(step_id)
+        return row_to_outreach_plan_step(rows[0])
+
+    def set_outreach_plan_step_recipient_emails(self, step_id: str, recipient_emails: list[str]) -> dict[str, Any]:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={"id": f"eq.{step_id}"},
+            json_body={
+                "recipient_emails": [email.strip().lower() for email in recipient_emails if email.strip()],
+                "updated_at": utc_now(),
+            },
+        )
+        if not rows:
+            raise KeyError(step_id)
+        return row_to_outreach_plan_step(rows[0])
+
+    def mark_outreach_plan_step_sent(self, step_id: str, *, sent_at: str, provider_message_id: str | None) -> dict[str, Any]:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={"id": f"eq.{step_id}"},
+            json_body={
+                "delivery_status": "sent",
+                "sent_at": sent_at,
+                "processing_started_at": None,
+                "failed_at": None,
+                "last_error": None,
+                "provider_message_id": provider_message_id,
+                "updated_at": sent_at,
+            },
+        )
+        if not rows:
+            raise KeyError(step_id)
+        return row_to_outreach_plan_step(rows[0])
+
+    def mark_outreach_plan_step_failed(self, step_id: str, *, failed_at: str, error_message: str) -> dict[str, Any]:
+        rows = self._rest_request(
+            "PATCH",
+            "outreach_plan_steps",
+            params={"id": f"eq.{step_id}"},
+            json_body={
+                "delivery_status": "failed",
+                "failed_at": failed_at,
+                "processing_started_at": None,
+                "last_error": error_message,
+                "updated_at": failed_at,
+            },
+        )
+        if not rows:
+            raise KeyError(step_id)
+        return row_to_outreach_plan_step(rows[0])
 
     def delete_job(self, job_id: str) -> dict[str, int | str]:
         documents = self.list_for_job(job_id)

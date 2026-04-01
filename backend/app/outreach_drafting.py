@@ -252,19 +252,24 @@ def ensure_outreach_plan_drafts(
     existing_drafts: list[dict[str, object]],
     settings: Settings,
     now: datetime | None = None,
+    window_days: int | None = DRAFT_WINDOW_DAYS,
+    target_step_ids: set[str] | None = None,
     drafter: Callable[..., OutreachPlanGeneratedCommunicationDraftBatch] | None = None,
 ) -> list[dict[str, object]]:
     resolved_now = now or datetime.now(london_timezone_for(datetime.now()))
     if resolved_now.tzinfo is None:
         resolved_now = resolved_now.replace(tzinfo=london_timezone_for(resolved_now))
     now_local = resolved_now.astimezone(london_timezone_for(resolved_now)).replace(second=0, microsecond=0)
-    window_end = now_local + timedelta(days=DRAFT_WINDOW_DAYS)
+    window_end = now_local + timedelta(days=window_days) if window_days is not None else None
     existing_draft_step_ids = {str(draft["plan_step_id"]) for draft in existing_drafts}
+    requested_step_ids = {str(step_id) for step_id in (target_step_ids or set()) if str(step_id).strip()}
 
     target_steps: list[dict[str, object]] = []
     for step in plan_steps:
         step_id = str(step.get("id"))
         if step_id in existing_draft_step_ids:
+            continue
+        if requested_step_ids and step_id not in requested_step_ids:
             continue
         step_type = str(step.get("type"))
         if not is_draftable_step_type(step_type):
@@ -272,7 +277,7 @@ def ensure_outreach_plan_drafts(
         scheduled_for = parse_plan_datetime(clean_text(step.get("scheduled_for")))
         if scheduled_for is None:
             continue
-        if not (now_local < scheduled_for <= window_end):
+        if window_end is not None and not (now_local < scheduled_for <= window_end):
             continue
         target_steps.append(step)
 

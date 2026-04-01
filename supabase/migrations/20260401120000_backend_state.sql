@@ -50,6 +50,14 @@ create table if not exists public.outreach_plan_steps (
   sender text not null check (sender in ('you', 'collexis')),
   headline text not null,
   scheduled_for text not null,
+  recipient_emails jsonb not null default '[]'::jsonb,
+  delivery_status text not null default 'pending' check (delivery_status in ('pending', 'sending', 'sent', 'failed')),
+  processing_started_at timestamptz null,
+  sent_at timestamptz null,
+  failed_at timestamptz null,
+  attempt_count integer not null default 0,
+  last_error text null,
+  provider_message_id text null,
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now())
 );

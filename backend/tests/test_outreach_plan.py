@@ -11,6 +11,7 @@ from backend.app.main import create_app
 from backend.app.outreach_drafting import ensure_outreach_plan_drafts
 from backend.app.outreach_planning import generate_outreach_plan
 from backend.app.repository import DocumentRepository
+from backend.app.scheduled_outreach import process_due_outreach_once
 from backend.app.schemas import (
     JobSnapshot,
     OutreachPlanDraft,
@@ -27,6 +28,12 @@ def build_settings(tmp_path: Path) -> Settings:
         database_path=data_dir / "documents.sqlite3",
         uploads_dir=data_dir / "uploads",
         openai_api_key="test-key",
+        brevo_api_key="brevo-test-key",
+        collexis_from_email="hello@collexis.uk",
+        collexis_from_name="Collexis",
+        brevo_sandbox=True,
+        scheduler_poll_interval_seconds=60,
+        scheduler_claim_timeout_seconds=600,
     )
 
 
@@ -1045,3 +1052,78 @@ def test_outreach_plan_draft_patch_marks_draft_as_user_edited(tmp_path: Path) ->
     assert body["subject"] == "Updated subject"
     assert body["body"] == "Updated body"
     assert body["is_user_edited"] is True
+
+
+def test_process_due_outreach_sends_due_email_and_marks_step_sent(tmp_path: Path, monkeypatch) -> None:
+    settings = build_settings(tmp_path)
+    init_db(settings)
+    repository = DocumentRepository(settings)
+    repository.replace_outreach_plan_steps(
+        "job-123",
+        steps=[
+            {
+                "id": "step-email",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Email follow-up",
+                "scheduled_for": "2026-03-30T09:00:00+01:00",
+                "recipient_emails": ["p.whitmore@btinternet.com"],
+                "created_at": "2026-03-29T10:00:00+01:00",
+                "updated_at": "2026-03-29T10:00:00+01:00",
+            }
+        ],
+    )
+    repository.create_outreach_plan_drafts(
+        "job-123",
+        drafts=[
+            {
+                "plan_step_id": "step-email",
+                "subject": "Invoice reminder",
+                "body": "Please arrange payment today.",
+            }
+        ],
+    )
+
+    captured: dict[str, object] = {}
+
+    def fake_send_brevo_email(*, settings: Settings, recipients: list[dict[str, str]], subject: str, text_content: str) -> dict[str, str | None]:
+        captured["settings"] = settings
+        captured["recipients"] = recipients
+        captured["subject"] = subject
+        captured["text_content"] = text_content
+        return {"message_id": "brevo-message-1"}
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            frozen = datetime.fromisoformat("2026-03-30T10:05:00+01:00")
+            if tz is None:
+                return frozen.replace(tzinfo=None)
+            return frozen.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return datetime.fromisoformat("2026-03-30T09:05:00+00:00").replace(tzinfo=None)
+
+    monkeypatch.setattr("backend.app.scheduled_outreach.send_brevo_email", fake_send_brevo_email)
+    monkeypatch.setattr("backend.app.scheduled_outreach.datetime", FrozenDateTime)
+
+    processed_count = process_due_outreach_once(
+        settings=settings,
+        draft_ensurer=lambda **_kwargs: [],
+    )
+
+    assert processed_count == 1
+    assert captured["recipients"] == [{"email": "p.whitmore@btinternet.com"}]
+    assert captured["subject"] == "Invoice reminder"
+    assert captured["text_content"] == "Please arrange payment today."
+
+    stored_step = repository.get_outreach_plan_step("step-email")
+    assert stored_step is not None
+    assert stored_step["delivery_status"] == "sent"
+    assert stored_step["provider_message_id"] == "brevo-message-1"
+
+    timeline_items = repository.list_timeline_for_job("job-123")
+    assert timeline_items[-1]["short_description"] == "Invoice reminder"
+    assert "Please arrange payment today." in timeline_items[-1]["details"]

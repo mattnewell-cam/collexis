@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS outreach_plan_steps (
     sender TEXT NOT NULL CHECK (sender IN ('you', 'collexis')),
     headline TEXT NOT NULL,
     scheduled_for TEXT NOT NULL,
+    recipient_emails TEXT NOT NULL DEFAULT '[]',
+    delivery_status TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_status IN ('pending', 'sending', 'sent', 'failed')),
+    processing_started_at TEXT NULL,
+    sent_at TEXT NULL,
+    failed_at TEXT NULL,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NULL,
+    provider_message_id TEXT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -281,7 +289,11 @@ def migrate_outreach_plan_steps(conn: sqlite3.Connection) -> None:
         """
     ).fetchone()
     table_sql = str(row["sql"]) if row and row["sql"] else ""
-    if "'sms'" in table_sql and "whatsapp" in table_sql:
+    has_sms = "'sms'" in table_sql
+    has_whatsapp = "whatsapp" in table_sql
+    has_recipients = "recipient_emails" in table_sql
+    has_delivery_status = "delivery_status" in table_sql
+    if has_sms and has_whatsapp and has_recipients and has_delivery_status:
         conn.execute(
             """
             UPDATE outreach_plan_steps
@@ -292,10 +304,13 @@ def migrate_outreach_plan_steps(conn: sqlite3.Connection) -> None:
         conn.commit()
         return
 
+    conn.execute("ALTER TABLE outreach_plan_steps RENAME TO outreach_plan_steps_legacy;")
+    legacy_columns = {
+        str(column["name"])
+        for column in conn.execute("PRAGMA table_info('outreach_plan_steps_legacy')").fetchall()
+    }
     conn.executescript(
         """
-        ALTER TABLE outreach_plan_steps RENAME TO outreach_plan_steps_legacy;
-
         CREATE TABLE outreach_plan_steps (
             id TEXT PRIMARY KEY,
             job_id TEXT NOT NULL,
@@ -303,24 +318,50 @@ def migrate_outreach_plan_steps(conn: sqlite3.Connection) -> None:
             sender TEXT NOT NULL CHECK (sender IN ('you', 'collexis')),
             headline TEXT NOT NULL,
             scheduled_for TEXT NOT NULL,
+            recipient_emails TEXT NOT NULL DEFAULT '[]',
+            delivery_status TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_status IN ('pending', 'sending', 'sent', 'failed')),
+            processing_started_at TEXT NULL,
+            sent_at TEXT NULL,
+            failed_at TEXT NULL,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NULL,
+            provider_message_id TEXT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
-
+        """
+    )
+    select_columns = [
+        "id",
+        "job_id",
+        "CASE WHEN type = 'text' THEN 'sms' ELSE type END",
+        "sender",
+        "headline",
+        "scheduled_for",
+        "coalesce(recipient_emails, '[]')" if "recipient_emails" in legacy_columns else "'[]'",
+        "coalesce(delivery_status, 'pending')" if "delivery_status" in legacy_columns else "'pending'",
+        "processing_started_at" if "processing_started_at" in legacy_columns else "NULL",
+        "sent_at" if "sent_at" in legacy_columns else "NULL",
+        "failed_at" if "failed_at" in legacy_columns else "NULL",
+        "coalesce(attempt_count, 0)" if "attempt_count" in legacy_columns else "0",
+        "last_error" if "last_error" in legacy_columns else "NULL",
+        "provider_message_id" if "provider_message_id" in legacy_columns else "NULL",
+        "created_at",
+        "updated_at",
+    ]
+    conn.execute(
+        f"""
         INSERT INTO outreach_plan_steps (
-            id, job_id, type, sender, headline, scheduled_for, created_at, updated_at
+            id, job_id, type, sender, headline, scheduled_for,
+            recipient_emails, delivery_status, processing_started_at, sent_at, failed_at,
+            attempt_count, last_error, provider_message_id, created_at, updated_at
         )
-        SELECT
-            id,
-            job_id,
-            CASE WHEN type = 'text' THEN 'sms' ELSE type END,
-            sender,
-            headline,
-            scheduled_for,
-            created_at,
-            updated_at
-        FROM outreach_plan_steps_legacy;
-
+        SELECT {", ".join(select_columns)}
+        FROM outreach_plan_steps_legacy
+        """
+    )
+    conn.executescript(
+        """
         DROP TABLE outreach_plan_steps_legacy;
 
         CREATE INDEX IF NOT EXISTS idx_outreach_plan_steps_job_scheduled

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime
+import logging
 from pathlib import Path
+import threading
 from typing import Callable
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
+from .brevo_email import brevo_configuration_error
 from .config import Settings
 from .database import init_db
 from .extraction import SUPPORTED_EXTENSIONS, normalize_iso_date, process_document, summarize_job_intake
@@ -15,6 +19,7 @@ from .inbound_email_job_inference import infer_inbound_email_job
 from .outreach_drafting import ensure_outreach_plan_drafts
 from .outreach_planning import generate_outreach_plan
 from .repository import DocumentRepository
+from .scheduled_outreach import SchedulerMonitor, start_scheduler_thread
 from .schemas import (
     DocumentResponse,
     DocumentUpdate,
@@ -34,12 +39,84 @@ from .schemas import (
     TimelineItemUpdate,
 )
 
+logger = logging.getLogger(__name__)
+
+
+def normalize_recipient_emails(emails: list[str]) -> list[str]:
+    return list(dict.fromkeys(email.strip().lower() for email in emails if email.strip()))
+
+
+def enrich_planned_steps(
+    planned_steps: list[dict[str, object]],
+    *,
+    recipient_emails: list[str],
+) -> list[dict[str, object]]:
+    normalized_emails = normalize_recipient_emails(recipient_emails)
+    return [
+        {
+            **step,
+            "recipient_emails": normalized_emails if str(step.get("type")) == "email" else [],
+            "delivery_status": "pending",
+            "processing_started_at": None,
+            "sent_at": None,
+            "failed_at": None,
+            "attempt_count": 0,
+            "last_error": None,
+            "provider_message_id": None,
+        }
+        for step in planned_steps
+    ]
+
+
+def create_initial_outreach_plan_drafts(
+    *,
+    repository: DocumentRepository,
+    job_id: str,
+    job_snapshot: object,
+    timeline_items: list[dict[str, object]],
+    ready_documents: list[dict[str, object]],
+    settings: Settings,
+    draft_ensurer: Callable[..., list[dict[str, object]]],
+) -> None:
+    try:
+        drafts_to_create = draft_ensurer(
+            job_snapshot=job_snapshot,
+            timeline_items=timeline_items,
+            documents=ready_documents,
+            plan_steps=repository.list_outreach_plan_steps(job_id),
+            existing_drafts=repository.list_outreach_plan_drafts(job_id),
+            settings=settings,
+            window_days=None,
+        )
+        if drafts_to_create:
+            repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
+    except Exception:
+        logger.exception("Outreach plan drafts could not be pre-generated for job %s", job_id)
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     app_settings = settings or Settings.from_env()
     init_db(app_settings)
 
-    app = FastAPI(title="Collexis backend")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        stop_event = threading.Event()
+        scheduler_monitor = SchedulerMonitor(app_settings.scheduler_poll_interval_seconds)
+        app.state.scheduler_monitor = scheduler_monitor
+        app.state.scheduler_stop_event = stop_event
+        app.state.scheduler_thread = start_scheduler_thread(
+            settings=app_settings,
+            monitor=scheduler_monitor,
+            stop_event=stop_event,
+            draft_ensurer=app.state.outreach_plan_draft_ensurer,
+        )
+        try:
+            yield
+        finally:
+            stop_event.set()
+            app.state.scheduler_thread.join(timeout=5)
+
+    app = FastAPI(title="Collexis backend", lifespan=lifespan)
     app.state.settings = app_settings
     app.state.document_processor = process_document
     app.state.job_intake_summarizer = summarize_job_intake
@@ -56,8 +133,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> Response:
+        scheduler_monitor: SchedulerMonitor = app.state.scheduler_monitor
+        snapshot = scheduler_monitor.snapshot()
+        payload = {
+            "status": "ok" if scheduler_monitor.is_healthy() else "degraded",
+            "brevo_configured": brevo_configuration_error(app.state.settings) is None,
+            "scheduler": {
+                "started_at": snapshot.started_at,
+                "last_heartbeat_at": snapshot.last_heartbeat_at,
+                "last_success_at": snapshot.last_success_at,
+                "last_error_at": snapshot.last_error_at,
+                "last_error": snapshot.last_error,
+                "processed_count": snapshot.processed_count,
+            },
+        }
+        return JSONResponse(payload, status_code=200 if scheduler_monitor.is_healthy() else 503)
 
     @app.get("/jobs/{job_id}/documents", response_model=list[DocumentResponse])
     def list_documents(job_id: str) -> list[DocumentResponse]:
@@ -126,7 +217,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             incoming_reply_context=payload.incoming_reply_context,
             settings=app.state.settings,
         )
-        repository.replace_outreach_plan_steps(job_id, steps=planned_steps)
+        repository.replace_outreach_plan_steps(
+            job_id,
+            steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
+        )
+        create_initial_outreach_plan_drafts(
+            repository=repository,
+            job_id=job_id,
+            job_snapshot=payload.job_snapshot,
+            timeline_items=timeline_items,
+            ready_documents=ready_documents,
+            settings=app.state.settings,
+            draft_ensurer=app.state.outreach_plan_draft_ensurer,
+        )
         enriched_steps = repository.list_outreach_plan_steps_with_drafts(job_id)
         return [
             OutreachPlanStepResponse.model_validate(step)
@@ -186,7 +289,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             incoming_reply_context=payload.reply,
             settings=app.state.settings,
         )
-        repository.replace_outreach_plan_steps(job_id, steps=planned_steps)
+        repository.replace_outreach_plan_steps(
+            job_id,
+            steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
+        )
+        create_initial_outreach_plan_drafts(
+            repository=repository,
+            job_id=job_id,
+            job_snapshot=payload.job_snapshot,
+            timeline_items=timeline_items,
+            ready_documents=ready_documents,
+            settings=app.state.settings,
+            draft_ensurer=app.state.outreach_plan_draft_ensurer,
+        )
 
         return {
             "timeline_item": TimelineItemResponse.model_validate(timeline_item).model_dump(mode="json"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -69,6 +70,21 @@ def row_to_timeline_item(row: Any) -> dict[str, Any]:
 
 
 def row_to_outreach_plan_step(row: Any) -> dict[str, Any]:
+    raw_recipient_emails = row["recipient_emails"] if "recipient_emails" in row.keys() else "[]"
+    if isinstance(raw_recipient_emails, str):
+        try:
+            recipient_emails = [
+                str(email).strip().lower()
+                for email in json.loads(raw_recipient_emails)
+                if str(email).strip()
+            ]
+        except json.JSONDecodeError:
+            recipient_emails = []
+    elif isinstance(raw_recipient_emails, list):
+        recipient_emails = [str(email).strip().lower() for email in raw_recipient_emails if str(email).strip()]
+    else:
+        recipient_emails = []
+
     return {
         "id": row["id"],
         "job_id": row["job_id"],
@@ -76,6 +92,14 @@ def row_to_outreach_plan_step(row: Any) -> dict[str, Any]:
         "sender": row["sender"],
         "headline": normalize_sms_headline(row["headline"], step_type=row["type"]),
         "scheduled_for": row["scheduled_for"],
+        "recipient_emails": recipient_emails,
+        "delivery_status": row["delivery_status"] if "delivery_status" in row.keys() else "pending",
+        "processing_started_at": row["processing_started_at"] if "processing_started_at" in row.keys() else None,
+        "sent_at": row["sent_at"] if "sent_at" in row.keys() else None,
+        "failed_at": row["failed_at"] if "failed_at" in row.keys() else None,
+        "attempt_count": int(row["attempt_count"]) if "attempt_count" in row.keys() and row["attempt_count"] is not None else 0,
+        "last_error": row["last_error"] if "last_error" in row.keys() else None,
+        "provider_message_id": row["provider_message_id"] if "provider_message_id" in row.keys() else None,
         "created_at": datetime.fromisoformat(row["created_at"]),
         "updated_at": datetime.fromisoformat(row["updated_at"]),
     }
@@ -392,11 +416,27 @@ class SQLiteDocumentRepository:
             ).fetchall()
         return [row_to_outreach_plan_draft(row) for row in rows]
 
+    def get_outreach_plan_step(self, step_id: str) -> dict[str, Any] | None:
+        with connect(self.settings) as conn:
+            row = conn.execute(
+                "SELECT * FROM outreach_plan_steps WHERE id = ?",
+                (step_id,),
+            ).fetchone()
+        return row_to_outreach_plan_step(row) if row else None
+
     def get_outreach_plan_draft(self, draft_id: str) -> dict[str, Any] | None:
         with connect(self.settings) as conn:
             row = conn.execute(
                 "SELECT * FROM outreach_plan_drafts WHERE id = ?",
                 (draft_id,),
+            ).fetchone()
+        return row_to_outreach_plan_draft(row) if row else None
+
+    def get_outreach_plan_draft_by_step_id(self, plan_step_id: str) -> dict[str, Any] | None:
+        with connect(self.settings) as conn:
+            row = conn.execute(
+                "SELECT * FROM outreach_plan_drafts WHERE plan_step_id = ?",
+                (plan_step_id,),
             ).fetchone()
         return row_to_outreach_plan_draft(row) if row else None
 
@@ -427,8 +467,10 @@ class SQLiteDocumentRepository:
                 conn.execute(
                     """
                     INSERT INTO outreach_plan_steps (
-                        id, job_id, type, sender, headline, scheduled_for, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        id, job_id, type, sender, headline, scheduled_for,
+                        recipient_emails, delivery_status, processing_started_at, sent_at, failed_at,
+                        attempt_count, last_error, provider_message_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                       (
                           step["id"],
@@ -437,8 +479,16 @@ class SQLiteDocumentRepository:
                           step["sender"],
                           step["headline"],
                           step["scheduled_for"],
-                        step["created_at"],
-                        step["updated_at"],
+                          json.dumps(step.get("recipient_emails") or []),
+                          step.get("delivery_status") or "pending",
+                          step.get("processing_started_at"),
+                          step.get("sent_at"),
+                          step.get("failed_at"),
+                          int(step.get("attempt_count") or 0),
+                          step.get("last_error"),
+                          step.get("provider_message_id"),
+                          step["created_at"],
+                          step["updated_at"],
                     ),
                 )
             conn.commit()
@@ -515,6 +565,137 @@ class SQLiteDocumentRepository:
         if draft is None:
             raise KeyError(draft_id)
         return draft
+
+    def list_pending_outreach_plan_email_steps(self) -> list[dict[str, Any]]:
+        with connect(self.settings) as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM outreach_plan_steps
+                WHERE type = 'email' AND delivery_status = 'pending'
+                ORDER BY scheduled_for ASC, created_at ASC
+                """
+            ).fetchall()
+        return [row_to_outreach_plan_step(row) for row in rows]
+
+    def release_stale_outreach_plan_email_claims(self, stale_before: str) -> int:
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET delivery_status = 'pending',
+                    processing_started_at = NULL,
+                    updated_at = ?
+                WHERE type = 'email'
+                  AND delivery_status = 'sending'
+                  AND processing_started_at IS NOT NULL
+                  AND processing_started_at < ?
+                """,
+                (utc_now(), stale_before),
+            )
+            conn.commit()
+        return int(cursor.rowcount or 0)
+
+    def claim_outreach_plan_email_step(self, step_id: str, claimed_at: str) -> dict[str, Any] | None:
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET delivery_status = 'sending',
+                    processing_started_at = ?,
+                    failed_at = NULL,
+                    updated_at = ?,
+                    attempt_count = attempt_count + 1
+                WHERE id = ? AND type = 'email' AND delivery_status = 'pending'
+                """,
+                (claimed_at, claimed_at, step_id),
+            )
+            conn.commit()
+        if not cursor.rowcount:
+            return None
+        return self.get_outreach_plan_step(step_id)
+
+    def increment_claimed_outreach_plan_email_step_attempt(self, step_id: str, attempt_count: int, claimed_at: str) -> dict[str, Any]:
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET attempt_count = ?, processing_started_at = ?, updated_at = ?
+                WHERE id = ? AND delivery_status = 'sending'
+                """,
+                (attempt_count, claimed_at, claimed_at, step_id),
+            )
+            conn.commit()
+        if not cursor.rowcount:
+            raise KeyError(step_id)
+        step = self.get_outreach_plan_step(step_id)
+        if step is None:
+            raise KeyError(step_id)
+        return step
+
+    def set_outreach_plan_step_recipient_emails(self, step_id: str, recipient_emails: list[str]) -> dict[str, Any]:
+        normalized = [email.strip().lower() for email in recipient_emails if email.strip()]
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET recipient_emails = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(normalized), utc_now(), step_id),
+            )
+            conn.commit()
+        if not cursor.rowcount:
+            raise KeyError(step_id)
+        step = self.get_outreach_plan_step(step_id)
+        if step is None:
+            raise KeyError(step_id)
+        return step
+
+    def mark_outreach_plan_step_sent(self, step_id: str, *, sent_at: str, provider_message_id: str | None) -> dict[str, Any]:
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET delivery_status = 'sent',
+                    sent_at = ?,
+                    processing_started_at = NULL,
+                    failed_at = NULL,
+                    last_error = NULL,
+                    provider_message_id = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (sent_at, provider_message_id, sent_at, step_id),
+            )
+            conn.commit()
+        if not cursor.rowcount:
+            raise KeyError(step_id)
+        step = self.get_outreach_plan_step(step_id)
+        if step is None:
+            raise KeyError(step_id)
+        return step
+
+    def mark_outreach_plan_step_failed(self, step_id: str, *, failed_at: str, error_message: str) -> dict[str, Any]:
+        with connect(self.settings) as conn:
+            cursor = conn.execute(
+                """
+                UPDATE outreach_plan_steps
+                SET delivery_status = 'failed',
+                    failed_at = ?,
+                    processing_started_at = NULL,
+                    last_error = ?,
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (failed_at, error_message, failed_at, step_id),
+            )
+            conn.commit()
+        if not cursor.rowcount:
+            raise KeyError(step_id)
+        step = self.get_outreach_plan_step(step_id)
+        if step is None:
+            raise KeyError(step_id)
+        return step
 
     def delete_job(self, job_id: str) -> dict[str, int | str]:
         documents = self.list_for_job(job_id)

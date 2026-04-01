@@ -26,6 +26,12 @@ def build_settings(tmp_path: Path) -> Settings:
         database_path=data_dir / "documents.sqlite3",
         uploads_dir=data_dir / "uploads",
         openai_api_key="test-key",
+        brevo_api_key="brevo-test-key",
+        collexis_from_email="hello@collexis.uk",
+        collexis_from_name="Collexis",
+        brevo_sandbox=True,
+        scheduler_poll_interval_seconds=60,
+        scheduler_claim_timeout_seconds=600,
     )
 
 
