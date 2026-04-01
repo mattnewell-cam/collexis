@@ -5,10 +5,12 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import type { Session } from '@supabase/supabase-js';
 import type { Credentials, UserAccount, UserProfile } from '@/types/account';
 
 interface AuthResult {
@@ -72,7 +74,13 @@ function dbProfileToAccount(email: string, row: DbProfile): UserAccount {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<UserAccount | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const supabase = createClient();
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+
+  if (!supabaseRef.current) {
+    supabaseRef.current = createClient();
+  }
+
+  const supabase = supabaseRef.current;
 
   const fetchAndSetUser = useCallback(
     async (email: string, userId: string) => {
@@ -94,6 +102,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+
+    const syncUserFromSession = (session: Session | null) => {
+      void (async () => {
+        try {
+          if (session?.user?.email && session.user.id) {
+            await fetchAndSetUser(session.user.email, session.user.id);
+          } else {
+            setUser(null);
+          }
+        } catch (error) {
+          console.error('[AuthProvider] Failed during auth state change:', error);
+          setUser(null);
+        } finally {
+          if (!cancelled) {
+            setIsLoading(false);
+          }
+        }
+      })();
+    };
 
     const loadInitialSession = async () => {
       try {
@@ -125,25 +152,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void loadInitialSession().finally(() => clearTimeout(loadingTimeout));
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         window.location.replace('/reset-password');
         return;
       }
-      try {
-        if (session?.user?.email && session.user.id) {
-          await fetchAndSetUser(session.user.email, session.user.id);
-        } else {
-          setUser(null);
-        }
-      } catch (error) {
-        console.error('[AuthProvider] Failed during auth state change:', error);
-        setUser(null);
-      } finally {
+
+      // Supabase advises against awaiting follow-up client work inside this
+      // callback because it can block subsequent auth calls.
+      setTimeout(() => {
         if (!cancelled) {
-          setIsLoading(false);
+          syncUserFromSession(session);
         }
-      }
+      }, 0);
     });
 
     return () => {
