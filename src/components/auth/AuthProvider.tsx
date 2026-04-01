@@ -125,7 +125,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     void loadInitialSession().finally(() => clearTimeout(loadingTimeout));
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        window.location.replace('/reset-password');
+        return;
+      }
       try {
         if (session?.user?.email && session.user.id) {
           await fetchAndSetUser(session.user.email, session.user.id);
@@ -251,8 +255,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const redirectTo =
       typeof window !== 'undefined'
-        ? `${window.location.origin}/auth/callback?next=/reset-password`
-        : `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/auth/callback?next=/reset-password`;
+        ? `${window.location.origin}/auth/callback`
+        : `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/auth/callback`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
 
