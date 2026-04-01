@@ -1,6 +1,6 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { findJobById, findJobsByEmail, getAllJobs } from '@/lib/jobStore';
 
 const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
@@ -51,22 +51,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'A valid inbound reply is required.' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const knownJobs = new Map(
-    [...getAllJobs(cookieStore), ...getAllJobs()].map(job => [job.id, job]),
-  );
+  const supabase = createAdminClient();
+  const allJobs = await getAllJobs(supabase);
+  const knownJobs = new Map(allJobs.map(job => [job.id, job]));
+
   if (knownJobs.size === 0) {
     return NextResponse.json({ error: 'There are no known jobs to match this inbound email against.' }, { status: 404 });
   }
 
   let job = null;
   if (typeof payload?.job_id === 'string' && payload.job_id.trim()) {
-    job = knownJobs.get(payload.job_id.trim()) ?? findJobById(payload.job_id.trim(), cookieStore) ?? findJobById(payload.job_id.trim());
+    job = knownJobs.get(payload.job_id.trim()) ?? await findJobById(payload.job_id.trim(), supabase) ?? null;
     if (!job) {
       return NextResponse.json({ error: 'Job not found for the supplied job id.' }, { status: 404 });
     }
   } else {
-    const matchingJobs = findJobsByEmail(reply.from_email, Array.from(knownJobs.values()));
+    const matchingJobs = await findJobsByEmail(reply.from_email, supabase);
     if (matchingJobs.length === 1) {
       [job] = matchingJobs;
     } else {

@@ -1,13 +1,6 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import {
-  createStoredJob,
-  getAddedJobs,
-  getAddedJobsCookieName,
-  getAllJobs,
-  serializeAddedJobs,
-} from '@/lib/jobStore';
-import { readAuthenticatedEmail } from '@/lib/authSession';
+import { createClient } from '@/lib/supabase/server';
+import { createJob } from '@/lib/jobStore';
 
 export async function POST(request: Request) {
   const payload = await request.json() as {
@@ -26,23 +19,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Name is required.' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const ownerEmail = readAuthenticatedEmail(cookieStore);
-  if (!ownerEmail) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
     return NextResponse.json({ error: 'Sign in to manage jobs.' }, { status: 401 });
   }
 
-  const addedJobs = getAddedJobs(cookieStore);
-  const job = createStoredJob({ name, address, documents }, getAllJobs(cookieStore));
-  const response = NextResponse.json({ job });
-
-  response.cookies.set({
-    name: getAddedJobsCookieName(ownerEmail),
-    value: serializeAddedJobs([...addedJobs, job]),
-    path: '/',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 30,
-  });
-
-  return response;
+  try {
+    const job = await createJob(supabase, user.id, { name, address, documents });
+    return NextResponse.json({ job });
+  } catch {
+    return NextResponse.json({ error: 'Could not create job.' }, { status: 500 });
+  }
 }

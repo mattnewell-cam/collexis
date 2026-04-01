@@ -48,9 +48,9 @@ function AccountSettingsPanel({
     email: string;
     profile: UserProfile;
   };
-  updateProfile: (profile: UserProfile) => { ok: boolean; error?: string };
-  changePassword: (currentPassword: string, nextPassword: string) => { ok: boolean; error?: string };
-  signOut: () => void;
+  updateProfile: (profile: UserProfile) => Promise<{ ok: boolean; error?: string }>;
+  changePassword: (currentPassword: string, nextPassword: string) => Promise<{ ok: boolean; error?: string }>;
+  signOut: () => Promise<void>;
 }) {
   const searchParams = useSearchParams();
   const [profile, setProfile] = useState<UserProfile>(user.profile);
@@ -72,12 +72,12 @@ function AccountSettingsPanel({
     }));
   };
 
-  const handleProfileSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleProfileSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setProfileMessage(null);
     setProfileError(null);
 
-    const result = updateProfile(profile);
+    const result = await updateProfile(profile);
 
     if (!result.ok) {
       setProfileError(result.error ?? 'We could not save those details.');
@@ -87,7 +87,7 @@ function AccountSettingsPanel({
     setProfileMessage('Details saved.');
   };
 
-  const handlePasswordSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handlePasswordSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setPasswordMessage(null);
     setPasswordError(null);
@@ -97,7 +97,7 @@ function AccountSettingsPanel({
       return;
     }
 
-    const result = changePassword(passwordState.currentPassword, passwordState.nextPassword);
+    const result = await changePassword(passwordState.currentPassword, passwordState.nextPassword);
 
     if (!result.ok) {
       setPasswordError(result.error ?? 'We could not update your password.');
@@ -108,8 +108,8 @@ function AccountSettingsPanel({
     setPasswordMessage('Password updated.');
   };
 
-  const handleSignOut = () => {
-    signOut();
+  const handleSignOut = async () => {
+    await signOut();
     window.location.replace('/');
   };
 

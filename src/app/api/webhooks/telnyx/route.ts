@@ -1,5 +1,6 @@
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
-import { findJobsByPhone, getAllJobs } from '@/lib/jobStore';
+import { createAdminClient } from '@/lib/supabase/admin';
+import { findJobById, findJobsByPhone, getAllJobs } from '@/lib/jobStore';
 
 const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 
@@ -47,15 +48,14 @@ async function createInboundSmsTimelineItem(jobId: string, payload: NonNullable<
 }
 
 async function regeneratePlan(jobId: string) {
-  const job = getAllJobs().find(candidate => candidate.id === jobId);
+  const supabase = createAdminClient();
+  const job = await findJobById(jobId, supabase);
   if (!job) return;
 
   await fetch(new URL(`/jobs/${jobId}/outreach-plan/generate`, documentBackendUrl), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      job_snapshot: toApiJobSnapshot(job),
-    }),
+    body: JSON.stringify({ job_snapshot: toApiJobSnapshot(job) }),
     cache: 'no-store',
   });
 }
@@ -74,7 +74,8 @@ export async function POST(request: Request) {
     case 'message.received': {
       const payload = event.payload;
       const fromPhone = payload?.from?.phone_number?.trim() ?? '';
-      const matchingJobs = findJobsByPhone(fromPhone, getAllJobs());
+      const supabase = createAdminClient();
+      const matchingJobs = await findJobsByPhone(fromPhone, supabase);
 
       console.log('[Telnyx] Inbound SMS:', {
         from: fromPhone,

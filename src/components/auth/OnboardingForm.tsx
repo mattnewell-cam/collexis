@@ -34,7 +34,7 @@ function OnboardingFields({
   completeProfile,
 }: {
   initialProfile: UserProfile;
-  completeProfile: (profile: UserProfile) => { ok: boolean; error?: string };
+  completeProfile: (profile: UserProfile) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [profile, setProfile] = useState<UserProfile>(initialProfile ?? defaultProfile);
   const [error, setError] = useState<string | null>(null);
@@ -46,11 +46,11 @@ function OnboardingFields({
     }));
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
-    const result = completeProfile(profile);
+    const result = await completeProfile(profile);
 
     if (!result.ok) {
       setError(result.error ?? 'We could not save your details.');

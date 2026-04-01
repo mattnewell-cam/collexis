@@ -1,7 +1,9 @@
-import { cookies } from 'next/headers';
+import { createClient } from '@/lib/supabase/server';
 import ConsoleJobsView from '@/components/ConsoleJobsView';
 import { getAllJobs } from '@/lib/jobStore';
 
 export default async function ConsolePage() {
-  return <ConsoleJobsView initialJobs={getAllJobs(await cookies())} />;
+  const supabase = await createClient();
+  const jobs = await getAllJobs(supabase);
+  return <ConsoleJobsView initialJobs={jobs} />;
 }

@@ -1,5 +1,5 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
 import { brevoConfigurationError, sendBrevoEmail } from '@/lib/brevoEmail';
 import type { Communication } from '@/types/communication';
@@ -104,8 +104,8 @@ export async function POST(
   }
 
   const { id } = await params;
-  const cookieStore = await cookies();
-  const job = findJobById(id, cookieStore);
+  const supabase = await createClient();
+  const job = await findJobById(id, supabase);
 
   if (!job) {
     return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
