@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import BulkUploadButton from '@/components/BulkUploadButton';
 import JobsTable from '@/components/JobsTable';
 import { Job } from '@/types/job';
 
@@ -61,7 +60,6 @@ export default function ConsoleJobsView({ initialJobs }: Props) {
         <JobsTable
           title="Outstanding"
           jobs={outstandingJobs}
-          actions={<BulkUploadButton key="bulk-upload" />}
           onDeleteJob={handleDeleteJob}
           deletingJobId={deletingJobId}
         />

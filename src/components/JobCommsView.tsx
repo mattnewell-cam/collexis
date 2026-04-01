@@ -250,6 +250,18 @@ export default function JobCommsView({ job }: { job: Job }) {
     }
   }, [handoverDaysInput, jobState, persistJobPatch]);
 
+  const upsertComm = useCallback((saved: Communication) => {
+    setComms(prev => {
+      const index = prev.findIndex(candidate => candidate.id === saved.id);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = saved;
+        return next;
+      }
+      return [...prev, saved];
+    });
+  }, []);
+
   const handleSave = useCallback(async (comm: Communication) => {
     const updated = { ...comm, jobId: jobState.id };
     try {
@@ -257,21 +269,13 @@ export default function JobCommsView({ job }: { job: Job }) {
         ? await updateTimelineItem(updated)
         : await createTimelineItem(jobState.id, updated);
 
-      setComms(prev => {
-        const index = prev.findIndex(candidate => candidate.id === saved.id);
-        if (index >= 0) {
-          const next = [...prev];
-          next[index] = saved;
-          return next;
-        }
-        return [...prev, saved];
-      });
+      upsertComm(saved);
       setEditingComm(null);
       setPageError(null);
     } catch (error) {
       setPageError(errorMessage(error, 'Could not save communication.'));
     }
-  }, [editingComm, jobState.id]);
+  }, [editingComm, jobState.id, upsertComm]);
 
   const removeComm = (id: string) => {
     setComms(prev => prev.filter(comm => comm.id !== id));
@@ -435,6 +439,7 @@ export default function JobCommsView({ job }: { job: Job }) {
             job={jobState}
             editing={editingComm}
             onSave={comm => { void handleSave(comm); }}
+            onSent={upsertComm}
             onCancelEdit={() => setEditingComm(null)}
           />
         </aside>

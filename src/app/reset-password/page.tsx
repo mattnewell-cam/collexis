@@ -66,7 +66,7 @@ export default function ResetPasswordPage() {
         ) : (
           <>
             <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Set new password</h2>
-            <p className="mt-2 text-sm text-slate-500">Choose a password you haven't used before.</p>
+            <p className="mt-2 text-sm text-slate-500">Choose a password you haven&apos;t used before.</p>
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
               <label className="block">

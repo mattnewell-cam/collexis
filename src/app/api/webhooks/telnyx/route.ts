@@ -1,6 +1,6 @@
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { findJobById, findJobsByPhone, getAllJobs } from '@/lib/jobStore';
+import { findJobById, findJobsByPhone } from '@/lib/jobStore';
 
 const documentBackendUrl = process.env.DOCUMENT_BACKEND_URL ?? 'http://127.0.0.1:8000';
 

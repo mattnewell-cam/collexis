@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Communication, CommCategory, CommSender, CommSubtype } from '@/types/communication';
 import type { Job } from '@/types/job';
 import { normalizeCommunicationDate } from '@/lib/communicationDates';
+import { sendJobEmail } from '@/lib/jobEmail';
 import { sendSms } from '@/lib/sms';
 import {
   CATEGORIES,
@@ -16,6 +17,7 @@ interface Props {
   job: Job;
   editing: Communication | null;
   onSave: (comm: Communication) => void;
+  onSent: (comm: Communication) => void;
   onCancelEdit: () => void;
 }
 
@@ -48,6 +50,7 @@ export default function CommForm({
   job,
   editing,
   onSave,
+  onSent,
   onCancelEdit,
 }: Props) {
   const isEditing = editing !== null;
@@ -60,7 +63,10 @@ export default function CommForm({
   const [date, setDate] = useState(editing ? normalizeCommunicationDate(editing.date) : today);
   const [shortDescription, setShortDescription] = useState(editing?.shortDescription ?? '');
   const [details, setDetails] = useState(editing?.details ?? '');
+  const [selectedEmail, setSelectedEmail] = useState(job.emails[0] ?? '');
   const [selectedPhone, setSelectedPhone] = useState(job.phones[0] ?? '');
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [emailError, setEmailError] = useState('');
   const [smsStatus, setSmsStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
   const [smsError, setSmsError] = useState('');
 
@@ -71,6 +77,7 @@ export default function CommForm({
   const isEmailSubtype = subtype === 'email';
   const isWhatsAppSubtype = subtype === 'whatsapp';
   const isSmsSubtype = subtype === 'sms';
+  const canSendEmail = isEmailSubtype && !isEditing && !!selectedEmail && shortDescription.trim().length > 0 && details.trim().length > 0;
   const canSendSms = isSmsSubtype && !isEditing && !!selectedPhone && details.trim().length > 0;
 
   const buildCommunication = (fallbackShortDescription?: string) => ({
@@ -84,19 +91,49 @@ export default function CommForm({
     details,
   });
 
-  const resetForm = () => {
+  const clearDeliveryFeedback = () => {
+    setEmailStatus('idle');
+    setEmailError('');
+    setSmsStatus('idle');
+    setSmsError('');
+  };
+
+  const resetComposer = () => {
     setShortDescription('');
     setDetails('');
     setDate(today);
+    setSelectedEmail(job.emails[0] ?? '');
     setSelectedPhone(job.phones[0] ?? '');
-    setSmsStatus('idle');
-    setSmsError('');
   };
 
   const handleSave = () => {
     onSave(buildCommunication());
     if (!isEditing) {
-      resetForm();
+      resetComposer();
+      clearDeliveryFeedback();
+    }
+  };
+
+  const handleSendEmailAndLog = async () => {
+    if (!canSendEmail) return;
+
+    setEmailStatus('sending');
+    setEmailError('');
+    setSmsStatus('idle');
+    setSmsError('');
+
+    try {
+      const sentCommunication = await sendJobEmail(job.id, {
+        recipients: [selectedEmail],
+        communication: buildCommunication(),
+      });
+
+      onSent(sentCommunication);
+      resetComposer();
+      setEmailStatus('sent');
+    } catch (error) {
+      setEmailStatus('error');
+      setEmailError(error instanceof Error ? error.message : 'Failed to send email.');
     }
   };
 
@@ -119,7 +156,7 @@ export default function CommForm({
 
     setSmsStatus('sent');
     onSave(buildCommunication('SMS sent'));
-    resetForm();
+    resetComposer();
   };
 
   return (
@@ -155,8 +192,7 @@ export default function CommForm({
               if (!isEditing) {
                 setSender(getDefaultSenderForCategory(nextCategory));
               }
-              setSmsStatus('idle');
-              setSmsError('');
+              clearDeliveryFeedback();
             }}
             disabled={isEditing}
           >
@@ -173,8 +209,7 @@ export default function CommForm({
               value={subtype}
               onChange={e => {
                 setSubtype(e.target.value as CommSubtype);
-                setSmsStatus('idle');
-                setSmsError('');
+                clearDeliveryFeedback();
               }}
             >
               <option value="">Select type...</option>
@@ -230,9 +265,8 @@ export default function CommForm({
             value={details}
             onChange={e => {
               setDetails(e.target.value);
-              if (smsStatus !== 'idle') {
-                setSmsStatus('idle');
-                setSmsError('');
+              if (emailStatus !== 'idle' || smsStatus !== 'idle') {
+                clearDeliveryFeedback();
               }
             }}
             placeholder={isEmailSubtype ? 'Write the email body...' : isWhatsAppSubtype ? 'Write the WhatsApp message...' : isSmsSubtype ? 'Type the SMS message...' : 'Full details, email text, transcript, notes...'}
@@ -243,6 +277,26 @@ export default function CommForm({
             </p>
           ) : null}
         </Field>
+
+        {isEmailSubtype && !isEditing && job.emails.length > 0 ? (
+          <Field label="Send to">
+            <select
+              className={inputCls}
+              value={selectedEmail}
+              onChange={e => {
+                setSelectedEmail(e.target.value);
+                if (emailStatus !== 'idle') {
+                  setEmailStatus('idle');
+                  setEmailError('');
+                }
+              }}
+            >
+              {job.emails.map(email => (
+                <option key={email} value={email}>{email}</option>
+              ))}
+            </select>
+          </Field>
+        ) : null}
 
         {isSmsSubtype && !isEditing && job.phones.length > 0 ? (
           <Field label="Send to">
@@ -258,6 +312,16 @@ export default function CommForm({
           </Field>
         ) : null}
 
+        {emailStatus === 'sent' ? (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            Email sent successfully.
+          </div>
+        ) : null}
+        {emailStatus === 'error' ? (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+            {emailError}
+          </div>
+        ) : null}
         {smsStatus === 'sent' ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
             SMS sent successfully.
@@ -280,7 +344,24 @@ export default function CommForm({
             Cancel
           </button>
         )}
-        {canSendSms ? (
+        {canSendEmail ? (
+          <>
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 transition-colors hover:bg-gray-200"
+            >
+              Log only
+            </button>
+            <button
+              onClick={() => { void handleSendEmailAndLog(); }}
+              disabled={emailStatus === 'sending'}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+            >
+              {emailStatus === 'sending' ? 'Sending...' : 'Send & log'}
+            </button>
+          </>
+        ) : canSendSms ? (
           <>
             <button
               onClick={handleSave}
