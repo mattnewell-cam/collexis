@@ -17,7 +17,10 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error) {
-      const destination = data.redirectType === 'PASSWORD_RECOVERY' ? '/reset-password' : next;
+      // redirectType is set at runtime by the auth-js PKCE flow but not reflected
+      // in the @supabase/ssr TypeScript types.
+      const redirectType = (data as unknown as { redirectType?: string }).redirectType;
+      const destination = redirectType === 'PASSWORD_RECOVERY' ? '/reset-password' : next;
       return NextResponse.redirect(`${publicOrigin}${destination}`);
     }
   }
