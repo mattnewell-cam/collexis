@@ -1130,6 +1130,89 @@ def test_process_due_outreach_sends_due_email_and_marks_step_sent(tmp_path: Path
     assert "Please arrange payment today." in timeline_items[-1]["details"]
 
 
+def test_process_due_outreach_does_not_send_same_step_twice(tmp_path: Path, monkeypatch) -> None:
+    settings = build_settings(tmp_path)
+    init_db(settings)
+    repository = DocumentRepository(settings)
+    repository.replace_outreach_plan_steps(
+        "job-123",
+        steps=[
+            {
+                "id": "step-email",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Email follow-up",
+                "scheduled_for": "2026-03-30T09:00:00+01:00",
+                "recipient_emails": ["p.whitmore@btinternet.com"],
+                "created_at": "2026-03-29T10:00:00+01:00",
+                "updated_at": "2026-03-29T10:00:00+01:00",
+            }
+        ],
+    )
+    repository.create_outreach_plan_drafts(
+        "job-123",
+        drafts=[
+            {
+                "plan_step_id": "step-email",
+                "subject": "Invoice reminder",
+                "body": "Please arrange payment today.",
+            }
+        ],
+    )
+
+    send_calls: list[dict[str, object]] = []
+
+    def fake_send_brevo_email(*, settings: Settings, recipients: list[dict[str, str]], subject: str, text_content: str) -> dict[str, str | None]:
+        send_calls.append(
+            {
+                "settings": settings,
+                "recipients": recipients,
+                "subject": subject,
+                "text_content": text_content,
+            }
+        )
+        return {"message_id": "brevo-message-1"}
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            frozen = datetime.fromisoformat("2026-03-30T10:05:00+01:00")
+            if tz is None:
+                return frozen.replace(tzinfo=None)
+            return frozen.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return datetime.fromisoformat("2026-03-30T09:05:00+00:00").replace(tzinfo=None)
+
+    monkeypatch.setattr("backend.app.scheduled_outreach.send_brevo_email", fake_send_brevo_email)
+    monkeypatch.setattr("backend.app.scheduled_outreach.datetime", FrozenDateTime)
+
+    first_processed_count = process_due_outreach_once(
+        settings=settings,
+        draft_ensurer=lambda **_kwargs: [],
+    )
+    second_processed_count = process_due_outreach_once(
+        settings=settings,
+        draft_ensurer=lambda **_kwargs: [],
+    )
+
+    assert first_processed_count == 1
+    assert second_processed_count == 0
+    assert len(send_calls) == 1
+
+    stored_step = repository.get_outreach_plan_step("step-email")
+    assert stored_step is not None
+    assert stored_step["delivery_status"] == "sent"
+
+    timeline_items = [
+        item for item in repository.list_timeline_for_job("job-123")
+        if item["short_description"] == "Invoice reminder"
+    ]
+    assert len(timeline_items) == 1
+
+
 def test_supabase_compatibility_marks_sent_when_updated_at_changes() -> None:
     repository = object.__new__(SupabaseDocumentRepository)
     repository._has_outreach_delivery_state = False

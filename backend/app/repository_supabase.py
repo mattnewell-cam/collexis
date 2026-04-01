@@ -48,8 +48,8 @@ def filename_stem(filename: str) -> str:
 
 
 def in_filter(values: list[str]) -> str:
-    escaped = [f"\"{value.replace('\"', '\\\"')}\"" for value in values]
-    return f"in.({','.join(escaped)})"
+    escaped = ['"' + value.replace('"', '\\"') + '"' for value in values]
+    return "in.(" + ",".join(escaped) + ")"
 
 
 def row_to_document(row: dict[str, Any]) -> dict[str, Any]:
