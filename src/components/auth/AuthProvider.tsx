@@ -75,11 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const supabase = createClient();
 
   const fetchAndSetUser = useCallback(
-    async (email: string) => {
+    async (email: string, userId: string) => {
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
-        .eq('id', (await supabase.auth.getUser()).data.user?.id ?? '')
+        .eq('id', userId)
         .single<DbProfile>();
 
       if (error || !data) {
@@ -101,8 +101,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (cancelled) return;
 
-        if (session?.user.email) {
-          await fetchAndSetUser(session.user.email);
+        if (session?.user?.email && session.user.id) {
+          await fetchAndSetUser(session.user.email, session.user.id);
         } else {
           setUser(null);
         }
@@ -118,12 +118,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    void loadInitialSession();
+    // Safety net: never leave the app stuck loading beyond 8 seconds
+    const loadingTimeout = setTimeout(() => {
+      setIsLoading(false);
+    }, 8000);
+
+    void loadInitialSession().finally(() => clearTimeout(loadingTimeout));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       try {
-        if (session?.user.email) {
-          await fetchAndSetUser(session.user.email);
+        if (session?.user?.email && session.user.id) {
+          await fetchAndSetUser(session.user.email, session.user.id);
         } else {
           setUser(null);
         }
