@@ -41,6 +41,12 @@ interface PendingUndoDelete {
   comm: Communication;
 }
 
+type PlanConfirmState =
+  | 'regenerate'
+  | 'generate-missing-phone'
+  | 'regenerate-missing-phone'
+  | null;
+
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
@@ -92,7 +98,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [savingDraftId, setSavingDraftId] = useState<string | null>(null);
   const [editingComm, setEditingComm] = useState<Communication | null>(null);
   const [deleteConfirmComm, setDeleteConfirmComm] = useState<Communication | null>(null);
-  const [showRegeneratePlanConfirm, setShowRegeneratePlanConfirm] = useState(false);
+  const [planConfirmState, setPlanConfirmState] = useState<PlanConfirmState>(null);
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null);
   const [showTimelineNotice, setShowTimelineNotice] = useState(searchParams.get('notice') === 'timeline-review');
   const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
@@ -102,6 +108,10 @@ export default function JobCommsView({ job }: { job: Job }) {
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
   const hasGeneratedPlan = postNowSteps.length > 0;
   const hasPhoneContact = jobState.phones.some(phone => phone.trim().length > 0);
+  const planConfirmNeedsPhoneWarning =
+    planConfirmState === 'generate-missing-phone' || planConfirmState === 'regenerate-missing-phone';
+  const planConfirmWillReplace =
+    planConfirmState === 'regenerate' || planConfirmState === 'regenerate-missing-phone';
 
   useEffect(() => {
     setJobState(job);
@@ -172,7 +182,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   useEffect(() => {
     setEditingComm(null);
     setDeleteConfirmComm(null);
-    setShowRegeneratePlanConfirm(false);
+    setPlanConfirmState(null);
     setPendingUndoDelete(null);
     if (deleteUndoTimeoutRef.current) {
       clearTimeout(deleteUndoTimeoutRef.current);
@@ -213,13 +223,13 @@ export default function JobCommsView({ job }: { job: Job }) {
   }, [deleteConfirmComm]);
 
   useEffect(() => {
-    if (!showRegeneratePlanConfirm) return;
+    if (!planConfirmState) return;
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setShowRegeneratePlanConfirm(false);
+      if (event.key === 'Escape') setPlanConfirmState(null);
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [showRegeneratePlanConfirm]);
+  }, [planConfirmState]);
 
   const persistJobPatch = useCallback(async (payload: Partial<Job>, trace?: ClientActionTrace) => {
     const response = await loggedFetch(`/api/jobs/${jobState.id}`, {
@@ -357,6 +367,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   };
 
   const handleGeneratePlan = useCallback(async () => {
+    setPlanConfirmState(null);
     setPlanGenerating(true);
     try {
       await runClientAction('outreach_plan.generate', async trace => {
@@ -384,7 +395,6 @@ export default function JobCommsView({ job }: { job: Job }) {
         if (planNeedsDraftRefresh(generatedPlan)) {
           void refreshPlanDrafts(nextJob);
         }
-        setShowRegeneratePlanConfirm(false);
         setPageError(null);
       }, {
         jobId: jobState.id,
@@ -397,6 +407,19 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanLoading(false);
     }
   }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, refreshPlanDrafts]);
+
+  const requestPlanGeneration = useCallback(() => {
+    if (planGenerating) return;
+    if (!hasPhoneContact) {
+      setPlanConfirmState(hasGeneratedPlan ? 'regenerate-missing-phone' : 'generate-missing-phone');
+      return;
+    }
+    if (hasGeneratedPlan) {
+      setPlanConfirmState('regenerate');
+      return;
+    }
+    void handleGeneratePlan();
+  }, [hasGeneratedPlan, hasPhoneContact, handleGeneratePlan, planGenerating]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -534,63 +557,70 @@ export default function JobCommsView({ job }: { job: Job }) {
                     <div className="relative w-32 shrink-0 self-stretch">
                       <div className="absolute inset-y-0 left-1/2 w-px -translate-x-px bg-gray-200" />
                     </div>
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-4 pl-3">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">Outreach plan</p>
-                        <p className="mt-0.5 text-sm text-gray-500">
-                          {hasGeneratedPlan
-                            ? 'Regenerate to replace the saved future plan for this job.'
-                            : 'Review the timeline, then generate the next-step plan.'}
-                        </p>
-                        {!hasPhoneContact ? (
-                          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                            Add a phone number before generating a plan. Collections are more likely to succeed when calls, SMS, and WhatsApp are available.
+                    <div className="min-w-0 flex-1 pl-3">
+                      <div className="flex flex-wrap items-end justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">Outreach plan</p>
+                          <p className="mt-0.5 text-sm text-gray-500">
+                            {hasGeneratedPlan
+                              ? 'Regenerate to replace the saved future plan for this job.'
+                              : 'Review the timeline, then generate the next-step plan.'}
                           </p>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-end gap-3">
-                        <label className="space-y-1">
-                          <span className="block text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
-                            Days Before Handover
-                          </span>
-                          <input
-                            type="number"
-                            min={0}
-                            inputMode="numeric"
-                            value={handoverDaysInput}
-                            onChange={event => setHandoverDaysInput(event.target.value)}
-                            onBlur={() => { void commitHandoverDays(); }}
-                            onKeyDown={event => {
-                              if (event.key === 'Enter') {
-                                event.preventDefault();
-                                void commitHandoverDays();
-                              }
-                            }}
+                        </div>
+                        <div className="flex shrink-0 items-end gap-3">
+                          <label className="space-y-1">
+                            <span className="block text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
+                              Days Before Handover
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              inputMode="numeric"
+                              value={handoverDaysInput}
+                              onChange={event => setHandoverDaysInput(event.target.value)}
+                              onBlur={() => { void commitHandoverDays(); }}
+                              onKeyDown={event => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  void commitHandoverDays();
+                                }
+                              }}
+                              disabled={planGenerating || savingHandoverDays}
+                              className="w-24 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={requestPlanGeneration}
                             disabled={planGenerating || savingHandoverDays}
-                            className="w-24 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60"
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (planGenerating) return;
-                            if (hasGeneratedPlan) {
-                              setShowRegeneratePlanConfirm(true);
-                              return;
-                            }
-                            void handleGeneratePlan();
-                          }}
-                          disabled={planGenerating || savingHandoverDays}
-                          className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white ${(planGenerating || savingHandoverDays) ? 'cursor-wait opacity-70' : 'transition-opacity hover:opacity-90'}`}
-                          style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
-                        >
-                          {planGenerating
-                            ? 'Generating...'
-                            : hasGeneratedPlan
-                              ? 'Regenerate plan'
-                              : 'Generate Plan'}
-                        </button>
+                            className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white ${(planGenerating || savingHandoverDays) ? 'cursor-wait opacity-70' : 'transition-opacity hover:opacity-90'}`}
+                            style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+                          >
+                            {planGenerating
+                              ? 'Generating...'
+                              : hasGeneratedPlan
+                                ? 'Regenerate plan'
+                                : 'Generate Plan'}
+                          </button>
+                        </div>
                       </div>
+                      {!hasPhoneContact ? (
+                        <div className="mt-3 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M12 9v4" />
+                              <path d="M12 17h.01" />
+                              <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                            </svg>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-amber-900">No phone number on this job</p>
+                            <p className="mt-1 text-sm leading-6 text-amber-800">
+                              Add one before generating a plan so calls, SMS, and WhatsApp can be included. Collections are more likely to succeed when phone contact is available.
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                   <PostNowTimeline
@@ -673,13 +703,13 @@ export default function JobCommsView({ job }: { job: Job }) {
         </div>
       ) : null}
 
-      {showRegeneratePlanConfirm ? (
+      {planConfirmState ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
           <button
             type="button"
             className="absolute inset-0 bg-slate-950/35"
-            aria-label="Close regenerate plan confirmation"
-            onClick={() => setShowRegeneratePlanConfirm(false)}
+            aria-label="Close plan confirmation"
+            onClick={() => setPlanConfirmState(null)}
           />
           <div
             role="dialog"
@@ -695,14 +725,26 @@ export default function JobCommsView({ job }: { job: Job }) {
                 <path d="M21 12a9 9 0 0 1-15.55 6.36L3 16" />
               </svg>
             </div>
-            <h2 id="regenerate-plan-title" className="mt-4 text-lg font-semibold text-gray-900">Are you sure?</h2>
+            <h2 id="regenerate-plan-title" className="mt-4 text-lg font-semibold text-gray-900">
+              {planConfirmWillReplace ? 'Regenerate outreach plan?' : 'Generate outreach plan?'}
+            </h2>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              Regenerating the outreach plan will replace the current future steps for this job.
+              {planConfirmWillReplace
+                ? 'Regenerating the outreach plan will replace the current future steps for this job.'
+                : 'Generate the next-step outreach plan for this job.'}
             </p>
+            {planConfirmNeedsPhoneWarning ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">No phone number is saved for this job.</p>
+                <p className="mt-1 text-sm leading-6 text-amber-800">
+                  Calls, SMS, and WhatsApp will be left out of the plan until one is added. Collections are more likely to succeed when phone contact is available.
+                </p>
+              </div>
+            ) : null}
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
                 type="button"
-                onClick={() => setShowRegeneratePlanConfirm(false)}
+                onClick={() => setPlanConfirmState(null)}
                 className="rounded-xl px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
               >
                 Cancel
@@ -713,7 +755,9 @@ export default function JobCommsView({ job }: { job: Job }) {
                 className="rounded-xl px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
                 style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
               >
-                Regenerate plan
+                {planConfirmNeedsPhoneWarning
+                  ? planConfirmWillReplace ? 'Regenerate anyway' : 'Generate anyway'
+                  : 'Regenerate plan'}
               </button>
             </div>
           </div>
