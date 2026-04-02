@@ -16,6 +16,7 @@ import type { Credentials, UserAccount, UserProfile } from '@/types/account';
 interface AuthResult {
   ok: boolean;
   error?: string;
+  nextStep?: 'confirm-email' | 'signed-in';
 }
 
 interface AuthContextValue {
@@ -184,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'We could not match that email and password.' };
     }
 
-    return { ok: true };
+    return { ok: true, nextStep: 'signed-in' };
   };
 
   const signUp = async ({ email, password }: Credentials): Promise<AuthResult> => {
@@ -196,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'Use at least 8 characters for the password.' };
     }
 
-    const { error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email, password });
 
     if (error) {
       if (error.message.toLowerCase().includes('already')) {
@@ -205,7 +206,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: error.message };
     }
 
-    return { ok: true };
+    return { ok: true, nextStep: data.session ? 'signed-in' : 'confirm-email' };
   };
 
   const signOut = async () => {

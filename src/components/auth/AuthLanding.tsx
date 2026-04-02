@@ -10,6 +10,7 @@ export default function AuthLanding() {
   const [mode, setMode] = useState<Mode>('signin');
   const [error, setError] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const [signupEmailSent, setSignupEmailSent] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -20,6 +21,7 @@ export default function AuthLanding() {
     setMode(next);
     setError(null);
     setResetSent(false);
+    setSignupEmailSent(null);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -47,6 +49,13 @@ export default function AuthLanding() {
 
     if (!result.ok) {
       setError(result.error ?? 'Something went wrong.');
+      return;
+    }
+
+    if (mode === 'signup' && result.nextStep === 'confirm-email') {
+      setSignupEmailSent(email.trim());
+      setPassword('');
+      setConfirmPassword('');
       return;
     }
 
@@ -109,14 +118,31 @@ export default function AuthLanding() {
                 {mode === 'signin'
                   ? 'Use your account details to open the collections console.'
                   : mode === 'signup'
-                  ? "We'll ask for company details right after account creation."
+                  ? 'Create your login to start onboarding.'
                   : "Enter your email and we'll send you a reset link."}
               </p>
             </div>
 
             {mode === 'forgot' && resetSent ? (
               <div className="mt-8 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-sm text-teal-800">
-                Check your inbox — a reset link is on its way.
+                Check your inbox. A reset link is on its way.
+                <button
+                  type="button"
+                  onClick={() => switchMode('signin')}
+                  className="mt-3 block text-xs font-medium text-teal-700 underline underline-offset-2"
+                >
+                  Back to sign in
+                </button>
+              </div>
+            ) : mode === 'signup' && signupEmailSent ? (
+              <div className="mt-8 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-4 text-sm text-teal-800">
+                <p>
+                  Check your inbox. We sent a confirmation link to{' '}
+                  <span className="font-semibold text-teal-900">{signupEmailSent}</span>.
+                </p>
+                <p className="mt-2">
+                  Verify your email, then sign in to continue with company details.
+                </p>
                 <button
                   type="button"
                   onClick={() => switchMode('signin')}
