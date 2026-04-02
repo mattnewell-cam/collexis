@@ -1,5 +1,7 @@
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
 import { documentBackendOrigin } from '@/lib/documentBackend';
+import { loggedFetch } from '@/lib/logging/fetch';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { findJobById, findJobsByPhone } from '@/lib/jobStore';
 
@@ -17,14 +19,18 @@ type TelnyxWebhookPayload = {
   };
 };
 
-async function createInboundSmsTimelineItem(jobId: string, payload: NonNullable<TelnyxWebhookPayload['data']>['payload']) {
+async function createInboundSmsTimelineItem(
+  jobId: string,
+  payload: NonNullable<TelnyxWebhookPayload['data']>['payload'],
+  trace?: { requestId?: string; actionId?: string; sessionId?: string },
+) {
   const fromPhone = payload?.from?.phone_number?.trim() ?? '';
   const toPhone = payload?.to?.[0]?.phone_number?.trim() ?? '';
   const text = payload?.text?.trim() ?? '';
   const receivedAt = payload?.received_at?.trim() ?? new Date().toISOString();
   const messageId = payload?.id?.trim() ?? '';
 
-  await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
+  await loggedFetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -43,23 +49,33 @@ async function createInboundSmsTimelineItem(jobId: string, payload: NonNullable<
       ].filter(Boolean).join('\n'),
     }),
     cache: 'no-store',
+  }, {
+    name: 'webhooks.telnyx.create_timeline_item',
+    context: { jobId },
+    trace,
+    source: 'next-api',
   });
 }
 
-async function regeneratePlan(jobId: string) {
+async function regeneratePlan(jobId: string, trace?: { requestId?: string; actionId?: string; sessionId?: string }) {
   const supabase = createAdminClient();
   const job = await findJobById(jobId, supabase);
   if (!job) return;
 
-  await fetch(new URL(`/jobs/${jobId}/outreach-plan/generate`, documentBackendOrigin()), {
+  await loggedFetch(new URL(`/jobs/${jobId}/outreach-plan/generate`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ job_snapshot: toApiJobSnapshot(job) }),
     cache: 'no-store',
+  }, {
+    name: 'webhooks.telnyx.regenerate_plan',
+    context: { jobId },
+    trace,
+    source: 'next-api',
   });
 }
 
-export async function POST(request: Request) {
+export const POST = withRouteLogging('webhooks.telnyx.receive', async (request: Request, _context, log) => {
   const body = await request.json().catch(() => null) as TelnyxWebhookPayload | null;
   const event = body?.data;
 
@@ -75,26 +91,25 @@ export async function POST(request: Request) {
       const fromPhone = payload?.from?.phone_number?.trim() ?? '';
       const supabase = createAdminClient();
       const matchingJobs = await findJobsByPhone(fromPhone, supabase);
-
-      console.log('[Telnyx] Inbound SMS:', {
+      log.info('webhooks.telnyx.message_received', {
         from: fromPhone,
         to: payload?.to?.[0]?.phone_number,
-        text: payload?.text,
         receivedAt: payload?.received_at,
         messageId: payload?.id,
         matchedJobIds: matchingJobs.map(job => job.id),
       });
 
       if (matchingJobs.length === 1) {
-        await createInboundSmsTimelineItem(matchingJobs[0].id, payload);
-        await regeneratePlan(matchingJobs[0].id);
+        await createInboundSmsTimelineItem(matchingJobs[0].id, payload, log.trace);
+        await regeneratePlan(matchingJobs[0].id, log.trace);
       }
       break;
     }
 
     case 'message.sent':
     case 'message.delivered':
-      console.log(`[Telnyx] Message ${eventType}:`, {
+      log.info('webhooks.telnyx.delivery_event', {
+        eventType,
         messageId: event.payload?.id,
         to: event.payload?.to?.[0]?.phone_number,
       });
@@ -102,13 +117,15 @@ export async function POST(request: Request) {
 
     case 'message.finalized':
       if (event.payload?.errors?.length) {
-        console.error('[Telnyx] Message failed:', event.payload.errors);
+        log.error('webhooks.telnyx.message_failed', {
+          errors: event.payload.errors,
+        });
       }
       break;
 
     default:
-      console.log(`[Telnyx] Unhandled event: ${eventType}`);
+      log.info('webhooks.telnyx.unhandled_event', { eventType });
   }
 
   return Response.json({ received: true });
-}
+});

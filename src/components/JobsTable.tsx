@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { logClientEvent } from '@/lib/logging/client';
 import { Job, JobStatus } from '@/types/job';
 
 interface Props {
@@ -110,6 +111,10 @@ export default function JobsTable({ title, jobs, actions, onDeleteJob, deletingJ
   };
 
   const navigateToJob = (jobId: string) => {
+    logClientEvent('info', 'jobs.opened', {
+      jobId,
+      tableTitle: title ?? null,
+    }, { sendToServer: true });
     router.push(`/console/jobs/${jobId}`);
   };
 
@@ -167,6 +172,11 @@ export default function JobsTable({ title, jobs, actions, onDeleteJob, deletingJ
             className="w-full sm:w-auto"
             onSubmit={event => {
               event.preventDefault();
+              logClientEvent('info', 'jobs.search_submitted', {
+                tableTitle: title ?? null,
+                queryLength: searchInput.trim().length,
+                totalJobs: jobs.length,
+              }, { sendToServer: true });
               setSearchQuery(searchInput);
             }}
           >

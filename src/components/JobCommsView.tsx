@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { logClientEvent, runClientAction, type ClientActionTrace } from '@/lib/logging/client';
+import { loggedFetch } from '@/lib/logging/fetch';
 import type { Communication } from '@/types/communication';
 import type { DocumentRecord } from '@/types/document';
 import type { Job } from '@/types/job';
@@ -218,11 +220,18 @@ export default function JobCommsView({ job }: { job: Job }) {
     return () => window.removeEventListener('keydown', handleKey);
   }, [showRegeneratePlanConfirm]);
 
-  const persistJobPatch = useCallback(async (payload: Partial<Job>) => {
-    const response = await fetch(`/api/jobs/${jobState.id}`, {
+  const persistJobPatch = useCallback(async (payload: Partial<Job>, trace?: ClientActionTrace) => {
+    const response = await loggedFetch(`/api/jobs/${jobState.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+    }, {
+      name: 'jobs.patch_from_comms',
+      context: {
+        jobId: jobState.id,
+        changedFields: Object.keys(payload),
+      },
+      trace,
     });
     if (!response.ok) {
       throw new Error('Could not save handover settings.');
@@ -232,14 +241,20 @@ export default function JobCommsView({ job }: { job: Job }) {
     return result.job;
   }, [jobState.id]);
 
-  const commitHandoverDays = useCallback(async () => {
+  const commitHandoverDays = useCallback(async (trace?: ClientActionTrace) => {
     const nextDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
     setHandoverDaysInput(String(nextDays));
     if (nextDays === jobState.handoverDays) return jobState;
 
     setSavingHandoverDays(true);
     try {
-      const updatedJob = await persistJobPatch({ handoverDays: nextDays });
+      const updatedJob = trace
+        ? await persistJobPatch({ handoverDays: nextDays }, trace)
+        : await runClientAction('jobs.save_handover_days', async actionTrace =>
+          persistJobPatch({ handoverDays: nextDays }, actionTrace), {
+          jobId: jobState.id,
+          handoverDays: nextDays,
+        });
       setPageError(null);
       return updatedJob;
     } catch (error) {
@@ -265,9 +280,15 @@ export default function JobCommsView({ job }: { job: Job }) {
   const handleSave = useCallback(async (comm: Communication) => {
     const updated = { ...comm, jobId: jobState.id };
     try {
-      const saved = editingComm
-        ? await updateTimelineItem(updated)
-        : await createTimelineItem(jobState.id, updated);
+      const saved = await runClientAction('communications.save', async trace =>
+        editingComm
+          ? updateTimelineItem(updated, trace)
+          : createTimelineItem(jobState.id, updated, trace), {
+        jobId: jobState.id,
+        timelineItemId: editingComm?.id ?? null,
+        category: updated.category,
+        subtype: updated.subtype ?? null,
+      });
 
       upsertComm(saved);
       setEditingComm(null);
@@ -282,13 +303,18 @@ export default function JobCommsView({ job }: { job: Job }) {
     if (editingComm?.id === id) setEditingComm(null);
   };
 
-  const queueUndoToast = (comm: Communication) => {
+  const queueUndoToast = (comm: Communication, trace: ClientActionTrace) => {
     if (deleteUndoTimeoutRef.current) clearTimeout(deleteUndoTimeoutRef.current);
     setPendingUndoDelete({ comm });
     deleteUndoTimeoutRef.current = setTimeout(() => {
       void (async () => {
         try {
-          await deleteTimelineItem(comm.id);
+          logClientEvent('info', 'communications.delete_committed', {
+            jobId: comm.jobId,
+            timelineItemId: comm.id,
+            actionId: trace.actionId,
+          }, { sendToServer: true });
+          await deleteTimelineItem(comm.id, trace);
           setPageError(null);
         } catch (error) {
           setComms(prev => (prev.some(item => item.id === comm.id) ? prev : [...prev, comm]));
@@ -303,9 +329,16 @@ export default function JobCommsView({ job }: { job: Job }) {
 
   const handleConfirmDelete = () => {
     if (!deleteConfirmComm) return;
-    removeComm(deleteConfirmComm.id);
-    queueUndoToast(deleteConfirmComm);
-    setDeleteConfirmComm(null);
+    void runClientAction('communications.delete_requested', async trace => {
+      removeComm(deleteConfirmComm.id);
+      queueUndoToast(deleteConfirmComm, trace);
+      setDeleteConfirmComm(null);
+    }, {
+      jobId: deleteConfirmComm.jobId,
+      timelineItemId: deleteConfirmComm.id,
+      category: deleteConfirmComm.category,
+      subtype: deleteConfirmComm.subtype ?? null,
+    });
   };
 
   const handleUndoDelete = () => {
@@ -316,48 +349,62 @@ export default function JobCommsView({ job }: { job: Job }) {
     }
     setComms(prev => [...prev, pendingUndoDelete.comm]);
     setPendingUndoDelete(null);
+    logClientEvent('info', 'communications.delete_undone', {
+      jobId: pendingUndoDelete.comm.jobId,
+      timelineItemId: pendingUndoDelete.comm.id,
+    }, { sendToServer: true });
   };
 
   const handleGeneratePlan = useCallback(async () => {
     setPlanGenerating(true);
     try {
-      const normalizedDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
-      let nextJob = jobState;
-      const patch: Partial<Job> = {};
+      await runClientAction('outreach_plan.generate', async trace => {
+        const normalizedDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
+        let nextJob = jobState;
+        const patch: Partial<Job> = {};
 
-      if (normalizedDays !== jobState.handoverDays) {
-        patch.handoverDays = normalizedDays;
-      }
+        if (normalizedDays !== jobState.handoverDays) {
+          patch.handoverDays = normalizedDays;
+        }
 
-      const nextHandoverAt = nextPlannedHandoverAt(jobState, normalizedDays);
-      if (nextHandoverAt !== jobState.plannedHandoverAt) {
-        patch.plannedHandoverAt = nextHandoverAt;
-      }
+        const nextHandoverAt = nextPlannedHandoverAt(jobState, normalizedDays);
+        if (nextHandoverAt !== jobState.plannedHandoverAt) {
+          patch.plannedHandoverAt = nextHandoverAt;
+        }
 
-      if (Object.keys(patch).length > 0) {
-        nextJob = await persistJobPatch(patch);
-      }
+        if (Object.keys(patch).length > 0) {
+          nextJob = await persistJobPatch(patch, trace);
+        }
 
-      setHandoverDaysInput(String(nextJob.handoverDays));
-      const generatedPlan = await generateOutreachPlan(nextJob);
-      if (activeJobIdRef.current !== nextJob.id) return;
-      setPostNowSteps(generatedPlan);
-      if (planNeedsDraftRefresh(generatedPlan)) {
-        void refreshPlanDrafts(nextJob);
-      }
-      setShowRegeneratePlanConfirm(false);
-      setPageError(null);
+        setHandoverDaysInput(String(nextJob.handoverDays));
+        const generatedPlan = await generateOutreachPlan(nextJob, trace);
+        if (activeJobIdRef.current !== nextJob.id) return;
+        setPostNowSteps(generatedPlan);
+        if (planNeedsDraftRefresh(generatedPlan)) {
+          void refreshPlanDrafts(nextJob);
+        }
+        setShowRegeneratePlanConfirm(false);
+        setPageError(null);
+      }, {
+        jobId: jobState.id,
+        hadExistingPlan: hasGeneratedPlan,
+      });
     } catch (error) {
       setPageError(errorMessage(error, 'Could not generate outreach plan.'));
     } finally {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [handoverDaysInput, jobState, persistJobPatch, refreshPlanDrafts]);
+  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, refreshPlanDrafts]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
-      const updated = await linkDocumentToTimelineItem(comm.id, documentId);
+      const updated = await runClientAction('documents.link_to_timeline', async trace =>
+        linkDocumentToTimelineItem(comm.id, documentId, trace), {
+        jobId: comm.jobId,
+        timelineItemId: comm.id,
+        documentId,
+      });
       setComms(prev => prev.map(item => item.id === updated.id ? updated : item));
       setDocuments(prev => prev.map(document =>
         document.id === documentId
@@ -377,9 +424,14 @@ export default function JobCommsView({ job }: { job: Job }) {
 
   const handleUploadDocuments = useCallback(async (comm: Communication, files: FileList) => {
     try {
-      const uploadedDocuments = await Promise.all(
-        Array.from(files).map(file => uploadJobDocument(jobState.id, file, comm.id)),
-      );
+      const uploadedDocuments = await runClientAction('documents.upload_to_timeline', async trace =>
+        Promise.all(
+          Array.from(files).map(file => uploadJobDocument(jobState.id, file, comm.id, trace)),
+        ), {
+        jobId: jobState.id,
+        timelineItemId: comm.id,
+        fileCount: files.length,
+      });
 
       setDocuments(prev => {
         const nextById = new Map(prev.map(document => [document.id, document]));
@@ -405,7 +457,11 @@ export default function JobCommsView({ job }: { job: Job }) {
   const handleSavePlanDraft = useCallback(async (draftId: string, payload: { subject?: string; body: string }): Promise<PostNowDraft> => {
     setSavingDraftId(draftId);
     try {
-      const savedDraft = await updateOutreachPlanDraft(draftId, payload);
+      const savedDraft = await runClientAction('outreach_plan.save_draft', async trace =>
+        updateOutreachPlanDraft(draftId, payload, trace), {
+        draftId,
+        hasSubject: Boolean(payload.subject?.trim()),
+      });
       setPostNowSteps(prev => prev.map(step =>
         step.draft?.id === draftId
           ? {

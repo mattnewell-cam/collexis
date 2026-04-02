@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { documentBackendOrigin } from '@/lib/documentBackend';
+import { loggedFetch } from '@/lib/logging/fetch';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById, updateJob, deleteJob } from '@/lib/jobStore';
 
-export async function PATCH(
+export const PATCH = withRouteLogging('jobs.update', async (
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-) {
+  log,
+) => {
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -23,17 +26,28 @@ export async function PATCH(
 
   try {
     const payload = await request.json();
+    log.info('jobs.update.attempt', {
+      jobId: id,
+      userId: user.id,
+      changedFields: payload && typeof payload === 'object' ? Object.keys(payload as Record<string, unknown>) : [],
+    });
     const updatedJob = await updateJob(supabase, id, payload);
     return NextResponse.json({ job: updatedJob });
-  } catch {
+  } catch (error) {
+    log.error('jobs.update.failed', {
+      jobId: id,
+      userId: user.id,
+      error,
+    });
     return NextResponse.json({ error: 'Could not update job.' }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(
+export const DELETE = withRouteLogging('jobs.delete', async (
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
-) {
+  log,
+) => {
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -51,10 +65,24 @@ export async function DELETE(
   let backendResponse: Response;
 
   try {
-    backendResponse = await fetch(new URL(`/jobs/${id}`, documentBackendOrigin()), {
-      method: 'DELETE',
+    log.info('jobs.delete.forward_to_backend', {
+      jobId: id,
+      userId: user.id,
     });
-  } catch {
+    backendResponse = await loggedFetch(new URL(`/jobs/${id}`, documentBackendOrigin()), {
+      method: 'DELETE',
+    }, {
+      name: 'jobs.delete_backend_request',
+      context: { jobId: id },
+      trace: log.trace,
+      source: 'next-api',
+    });
+  } catch (error) {
+    log.error('jobs.delete.backend_unavailable', {
+      jobId: id,
+      userId: user.id,
+      error,
+    });
     return NextResponse.json({ error: 'Could not reach the document backend.' }, { status: 502 });
   }
 
@@ -66,10 +94,15 @@ export async function DELETE(
 
   try {
     await deleteJob(supabase, id);
-  } catch {
+  } catch (error) {
+    log.error('jobs.delete.failed', {
+      jobId: id,
+      userId: user.id,
+      error,
+    });
     return NextResponse.json({ error: 'Could not delete job.' }, { status: 500 });
   }
 
   const backendPayload = await backendResponse.json().catch(() => ({}));
   return NextResponse.json({ ...backendPayload, job: currentJob });
-}
+});

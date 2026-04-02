@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { withRouteLogging } from '@/lib/logging/server';
 
 type WhatsAppWebhookPayload = {
   entry?: Array<{
@@ -28,7 +29,7 @@ function countItems(payload: WhatsAppWebhookPayload | null, key: 'messages' | 's
   }, 0);
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRouteLogging('webhooks.whatsapp.verify', async (request: NextRequest) => {
   const verifyToken = webhookVerifyToken();
   if (!verifyToken) {
     return NextResponse.json({
@@ -50,9 +51,9 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ error: 'Webhook verification failed.' }, { status: 403 });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withRouteLogging('webhooks.whatsapp.receive', async (request: Request) => {
   const payload = await request.json().catch(() => null) as WhatsAppWebhookPayload | null;
   const messageCount = countItems(payload, 'messages');
   const statusCount = countItems(payload, 'statuses');
@@ -62,4 +63,4 @@ export async function POST(request: Request) {
     received_messages: messageCount,
     received_statuses: statusCount,
   });
-}
+});

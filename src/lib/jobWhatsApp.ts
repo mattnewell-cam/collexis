@@ -1,5 +1,7 @@
 import type { Communication } from '@/types/communication';
 import { mapApiTimelineItem, type ApiTimelineItem } from './backendTimeline';
+import { loggedFetch } from './logging/fetch';
+import type { TraceContext } from './logging/shared';
 
 interface SendJobWhatsAppInput {
   recipients: string[];
@@ -15,14 +17,24 @@ function ensureResponseOk(response: Response, fallbackMessage: string) {
 export async function sendJobWhatsApp(
   jobId: string,
   { recipients, communication }: SendJobWhatsAppInput,
+  trace?: TraceContext,
 ): Promise<Communication> {
-  const response = await fetch(`/api/jobs/${jobId}/send-whatsapp`, {
+  const response = await loggedFetch(`/api/jobs/${jobId}/send-whatsapp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       recipients,
       communication,
     }),
+  }, {
+    name: 'communications.send_whatsapp',
+    context: {
+      jobId,
+      recipientCount: recipients.length,
+      headlineLength: communication.shortDescription.trim().length,
+      bodyLength: communication.details.trim().length,
+    },
+    trace,
   });
 
   if (!response.ok) {

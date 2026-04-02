@@ -1,3 +1,5 @@
+import { loggedFetch } from './logging/fetch';
+
 export interface BrevoEmailRecipient {
   email: string;
   name?: string;
@@ -36,7 +38,7 @@ export async function sendBrevoEmail({
     throw new Error(brevoConfigurationError() ?? 'Brevo is not configured.');
   }
 
-  const response = await fetch(brevoApiUrl, {
+  const response = await loggedFetch(brevoApiUrl, {
     method: 'POST',
     headers: {
       accept: 'application/json',
@@ -64,6 +66,14 @@ export async function sendBrevoEmail({
         : {}),
     }),
     cache: 'no-store',
+  }, {
+    name: 'provider.brevo.send_email',
+    context: {
+      recipientCount: to.length,
+      subjectLength: subject.trim().length,
+      bodyLength: textContent.trim().length,
+    },
+    source: 'next-api',
   });
 
   if (!response.ok) {

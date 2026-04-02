@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 
-export async function GET(request: Request) {
+export const GET = withRouteLogging('auth.callback', async (request: Request, _context, log) => {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get('code');
   const next = searchParams.get('next') ?? '/console';
@@ -21,9 +22,14 @@ export async function GET(request: Request) {
       // in the @supabase/ssr TypeScript types.
       const redirectType = (data as unknown as { redirectType?: string }).redirectType;
       const destination = redirectType === 'PASSWORD_RECOVERY' ? '/reset-password' : next;
+      log.info('auth.callback.succeeded', {
+        redirectType: redirectType ?? null,
+        destination,
+      });
       return NextResponse.redirect(`${publicOrigin}${destination}`);
     }
   }
 
+  log.warn('auth.callback.failed');
   return NextResponse.redirect(`${publicOrigin}/?error=auth_callback`);
-}
+});

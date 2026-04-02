@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
 import { documentBackendOrigin } from '@/lib/documentBackend';
+import { loggedFetch } from '@/lib/logging/fetch';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { findJobById, findJobsByEmail, getAllJobs } from '@/lib/jobStore';
 
@@ -42,7 +44,7 @@ function normalizeReply(payload: IncomingReplyPayload['reply']) {
   };
 }
 
-export async function POST(request: Request) {
+export const POST = withRouteLogging('inbound_email.match_and_forward', async (request: Request, _context, log) => {
   const payload = await request.json().catch(() => null) as IncomingReplyPayload | null;
   const reply = normalizeReply(payload?.reply ?? null);
 
@@ -69,7 +71,7 @@ export async function POST(request: Request) {
     if (matchingJobs.length === 1) {
       [job] = matchingJobs;
     } else {
-      const inferenceResponse = await fetch(new URL('/jobs/infer-inbound-email-job', documentBackendOrigin()), {
+      const inferenceResponse = await loggedFetch(new URL('/jobs/infer-inbound-email-job', documentBackendOrigin()), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -77,6 +79,11 @@ export async function POST(request: Request) {
           job_candidates: Array.from(knownJobs.values()).map(toApiJobSnapshot),
         }),
         cache: 'no-store',
+      }, {
+        name: 'inbound_email.infer_job',
+        context: { candidateCount: knownJobs.size },
+        trace: log.trace,
+        source: 'next-api',
       });
 
       if (!inferenceResponse.ok) {
@@ -105,7 +112,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const backendResponse = await fetch(new URL(`/jobs/${job.id}/inbound-email-replies`, documentBackendOrigin()), {
+  const backendResponse = await loggedFetch(new URL(`/jobs/${job.id}/inbound-email-replies`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -113,6 +120,11 @@ export async function POST(request: Request) {
       reply,
     }),
     cache: 'no-store',
+  }, {
+    name: 'inbound_email.forward_matched_job',
+    context: { jobId: job.id },
+    trace: log.trace,
+    source: 'next-api',
   });
 
   const responseText = await backendResponse.text();
@@ -123,4 +135,4 @@ export async function POST(request: Request) {
       'Content-Type': backendResponse.headers.get('Content-Type') ?? 'application/json',
     },
   });
-}
+});

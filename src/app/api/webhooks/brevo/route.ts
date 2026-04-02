@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { logServerEvent, withRouteLogging } from '@/lib/logging/server';
 
 type BrevoWebhookPayload = Record<string, unknown> | Array<Record<string, unknown>>;
 
@@ -32,16 +33,18 @@ function isAuthorized(request: NextRequest) {
   return request.nextUrl.searchParams.get('secret') === secret;
 }
 
-export async function GET(request: NextRequest) {
+export const GET = withRouteLogging('webhooks.brevo.verify', async (request: NextRequest, _context, log) => {
   if (!isAuthorized(request)) {
+    log.warn('webhooks.brevo.verify_failed');
     return NextResponse.json({ error: 'Webhook authorization failed.' }, { status: 403 });
   }
 
   return NextResponse.json({ ok: true, provider: 'brevo' });
-}
+});
 
-export async function POST(request: NextRequest) {
+export const POST = withRouteLogging('webhooks.brevo.receive', async (request: NextRequest, _context, log) => {
   if (!isAuthorized(request)) {
+    log.warn('webhooks.brevo.authorization_failed');
     return NextResponse.json({ error: 'Webhook authorization failed.' }, { status: 403 });
   }
 
@@ -52,15 +55,13 @@ export async function POST(request: NextRequest) {
   }
 
   const events = payloadEvents(payload);
-
-  console.log('[Brevo webhook] Received event batch:', {
+  logServerEvent('info', 'next-api', 'webhooks.brevo.batch_received', {
     eventCount: events.length,
     events,
-    payload,
-  });
+  }, log.trace);
 
   return NextResponse.json({
     ok: true,
     received_events: events.length,
   });
-}
+});

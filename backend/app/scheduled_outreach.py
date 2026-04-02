@@ -9,6 +9,7 @@ from typing import Callable
 from .brevo_email import send_brevo_email
 from .config import Settings
 from .job_snapshot_store import fetch_job_snapshot
+from .logging_utils import log_event
 from .outreach_planning import london_timezone_for, parse_plan_datetime
 from .repository import DocumentRepository
 
@@ -191,6 +192,15 @@ def process_due_outreach_once(
             )
 
             sent_at = now_london().isoformat()
+            log_event(
+                logger,
+                logging.INFO,
+                "scheduled_outreach.sent",
+                step_id=str(claimed_step["id"]),
+                job_id=str(claimed_step["job_id"]),
+                recipient_count=len(recipient_emails),
+                provider_message_id=str(send_result.get("message_id") or "") or None,
+            )
             repository.mark_outreach_plan_step_sent(
                 str(claimed_step["id"]),
                 sent_at=sent_at,

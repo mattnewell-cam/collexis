@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
+import os
 from pathlib import Path
 import threading
 from typing import Callable
+from uuid import uuid4
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
@@ -16,6 +18,14 @@ from .config import Settings
 from .database import init_db
 from .extraction import SUPPORTED_EXTENSIONS, normalize_iso_date, process_document, summarize_job_intake
 from .inbound_email_job_inference import infer_inbound_email_job
+from .logging_utils import (
+    LOG_HEADER_ACTION_ID,
+    LOG_HEADER_REQUEST_ID,
+    LOG_HEADER_SESSION_ID,
+    LOG_HEADER_TRACE_ORIGIN,
+    configure_json_logging,
+    log_event,
+)
 from .outreach_drafting import ensure_outreach_plan_drafts
 from .outreach_planning import generate_outreach_plan
 from .repository import DocumentRepository
@@ -95,6 +105,7 @@ def create_initial_outreach_plan_drafts(
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    configure_json_logging(os.getenv("COLLEXIS_LOG_LEVEL", "INFO"))
     app_settings = settings or Settings.from_env()
     init_db(app_settings)
 
@@ -131,6 +142,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def request_logging_middleware(request: Request, call_next):
+        request_id = request.headers.get(LOG_HEADER_REQUEST_ID) or str(uuid4())
+        action_id = request.headers.get(LOG_HEADER_ACTION_ID)
+        session_id = request.headers.get(LOG_HEADER_SESSION_ID)
+        trace_origin = request.headers.get(LOG_HEADER_TRACE_ORIGIN)
+        started_at = datetime.now(timezone.utc)
+
+        log_event(
+            logger,
+            logging.INFO,
+            "backend.request.received",
+            request_id=request_id,
+            action_id=action_id,
+            session_id=session_id,
+            method=request.method,
+            path=request.url.path,
+            trace_origin=trace_origin,
+        )
+
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+            log_event(
+                logger,
+                logging.ERROR,
+                "backend.request.failed",
+                request_id=request_id,
+                action_id=action_id,
+                session_id=session_id,
+                method=request.method,
+                path=request.url.path,
+                duration_ms=duration_ms,
+                error=exc,
+            )
+            raise
+
+        duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        response.headers[LOG_HEADER_REQUEST_ID] = request_id
+        response.headers[LOG_HEADER_TRACE_ORIGIN] = "backend"
+        log_event(
+            logger,
+            logging.INFO if response.status_code < 500 else logging.WARNING,
+            "backend.request.completed",
+            request_id=request_id,
+            action_id=action_id,
+            session_id=session_id,
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            duration_ms=duration_ms,
+        )
+        return response
 
     @app.get("/health")
     def health() -> Response:

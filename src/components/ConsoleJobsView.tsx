@@ -2,6 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import JobsTable from '@/components/JobsTable';
+import { runClientAction } from '@/lib/logging/client';
+import { loggedFetch } from '@/lib/logging/fetch';
 import { Job } from '@/types/job';
 
 interface Props {
@@ -29,17 +31,25 @@ export default function ConsoleJobsView({ initialJobs }: Props) {
     setDeletingJobId(job.id);
 
     try {
-      const response = await fetch(`/api/jobs/${job.id}`, {
-        method: 'DELETE',
+      return await runClientAction('jobs.delete', async trace => {
+        const response = await loggedFetch(`/api/jobs/${job.id}`, {
+          method: 'DELETE',
+        }, {
+          name: 'jobs.delete_request',
+          context: { jobId: job.id },
+          trace,
+        });
+
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null) as { error?: string } | null;
+          throw new Error(payload?.error ?? 'Could not delete job.');
+        }
+
+        setJobs(currentJobs => currentJobs.filter(currentJob => currentJob.id !== job.id));
+        return true;
+      }, {
+        jobId: job.id,
       });
-
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(payload?.error ?? 'Could not delete job.');
-      }
-
-      setJobs(currentJobs => currentJobs.filter(currentJob => currentJob.id !== job.id));
-      return true;
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : 'Could not delete job.');
       return false;

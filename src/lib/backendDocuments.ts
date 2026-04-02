@@ -1,5 +1,7 @@
 import type { DocumentRecord } from '@/types/document';
 import { documentBackendPath } from './documentBackend';
+import { loggedFetch } from './logging/fetch';
+import type { TraceContext } from './logging/shared';
 
 type ApiDocumentRecord = {
   id: string;
@@ -43,8 +45,12 @@ export function mapApiDocument(document: ApiDocumentRecord): DocumentRecord {
   };
 }
 
-export async function fetchJobDocuments(jobId: string): Promise<DocumentRecord[]> {
-  const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
+export async function fetchJobDocuments(jobId: string, trace?: TraceContext): Promise<DocumentRecord[]> {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
+    name: 'documents.fetch',
+    context: { jobId },
+    trace,
+  });
   ensureResponseOk(response, 'Could not load documents.');
   const payload = await response.json() as ApiDocumentRecord[];
   return payload.map(mapApiDocument);
@@ -54,6 +60,7 @@ export async function uploadJobDocument(
   jobId: string,
   file: File,
   timelineItemId?: string,
+  trace?: TraceContext,
 ): Promise<DocumentRecord> {
   const formData = new FormData();
   formData.append('file', file);
@@ -61,9 +68,18 @@ export async function uploadJobDocument(
     formData.append('timeline_item_id', timelineItemId);
   }
 
-  const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), {
     method: 'POST',
     body: formData,
+  }, {
+    name: 'documents.upload',
+    context: {
+      jobId,
+      timelineItemId: timelineItemId ?? null,
+      fileSize: file.size,
+      mimeType: file.type || null,
+    },
+    trace,
   });
   ensureResponseOk(response, 'Could not upload document.');
   return mapApiDocument(await response.json() as ApiDocumentRecord);

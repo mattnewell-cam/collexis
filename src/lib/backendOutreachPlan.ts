@@ -2,6 +2,8 @@ import type { Job } from '@/types/job';
 import type { PostNowDraft, PostNowStep } from '@/types/postNowPlan';
 import { toApiJobSnapshot } from './apiJobSnapshot';
 import { documentBackendPath } from './documentBackend';
+import { loggedFetch } from './logging/fetch';
+import type { TraceContext } from './logging/shared';
 
 type ApiOutreachPlanDraft = {
   id: string;
@@ -88,35 +90,47 @@ export function mapApiOutreachPlanStep(step: ApiOutreachPlanStep): PostNowStep {
   };
 }
 
-export async function fetchOutreachPlan(jobId: string): Promise<PostNowStep[]> {
-  const response = await fetch(documentBackendPath(`/jobs/${jobId}/outreach-plan`), {
+export async function fetchOutreachPlan(jobId: string, trace?: TraceContext): Promise<PostNowStep[]> {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/outreach-plan`), {
     cache: 'no-store',
+  }, {
+    name: 'outreach_plan.fetch',
+    context: { jobId },
+    trace,
   });
   ensureResponseOk(response, 'Could not load outreach plan.');
   const payload = await response.json() as ApiOutreachPlanStep[];
   return payload.map(mapApiOutreachPlanStep);
 }
 
-export async function ensureOutreachPlanDrafts(job: Job): Promise<PostNowStep[]> {
-  const response = await fetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/drafts/ensure`), {
+export async function ensureOutreachPlanDrafts(job: Job, trace?: TraceContext): Promise<PostNowStep[]> {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/drafts/ensure`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       job_snapshot: toApiJobSnapshot(job),
     }),
+  }, {
+    name: 'outreach_plan.ensure_drafts',
+    context: { jobId: job.id },
+    trace,
   });
   ensureResponseOk(response, 'Could not refresh outreach plan drafts.');
   const payload = await response.json() as ApiOutreachPlanStep[];
   return payload.map(mapApiOutreachPlanStep);
 }
 
-export async function generateOutreachPlan(job: Job): Promise<PostNowStep[]> {
-  const response = await fetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/generate`), {
+export async function generateOutreachPlan(job: Job, trace?: TraceContext): Promise<PostNowStep[]> {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/generate`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       job_snapshot: toApiJobSnapshot(job),
     }),
+  }, {
+    name: 'outreach_plan.generate',
+    context: { jobId: job.id },
+    trace,
   });
   ensureResponseOk(response, 'Could not generate outreach plan.');
   const payload = await response.json() as ApiOutreachPlanStep[];
@@ -126,8 +140,9 @@ export async function generateOutreachPlan(job: Job): Promise<PostNowStep[]> {
 export async function receiveInboundEmailReply(
   job: Job,
   reply: InboundEmailReplyInput,
+  trace?: TraceContext,
 ): Promise<{ planSteps: PostNowStep[] }> {
-  const response = await fetch(`/api/jobs/${job.id}/receive-email-reply`, {
+  const response = await loggedFetch(`/api/jobs/${job.id}/receive-email-reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -140,6 +155,14 @@ export async function receiveInboundEmailReply(
         body: reply.body,
       },
     }),
+  }, {
+    name: 'inbound_email.process_known_job',
+    context: {
+      jobId: job.id,
+      hasSubject: Boolean(reply.subject?.trim()),
+      bodyLength: reply.body.trim().length,
+    },
+    trace,
   });
   ensureResponseOk(response, 'Could not process inbound email reply.');
   const payload = await response.json() as ApiInboundEmailReplyResponse;
@@ -150,8 +173,9 @@ export async function receiveInboundEmailReply(
 
 export async function receiveInboundEmailReplyBySender(
   reply: InboundEmailReplyInput & { jobId?: string },
+  trace?: TraceContext,
 ): Promise<{ planSteps: PostNowStep[] }> {
-  const response = await fetch('/api/email-replies', {
+  const response = await loggedFetch('/api/email-replies', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -164,6 +188,14 @@ export async function receiveInboundEmailReplyBySender(
         body: reply.body,
       },
     }),
+  }, {
+    name: 'inbound_email.process_unknown_job',
+    context: {
+      jobId: reply.jobId ?? null,
+      hasSubject: Boolean(reply.subject?.trim()),
+      bodyLength: reply.body.trim().length,
+    },
+    trace,
   });
   ensureResponseOk(response, 'Could not process inbound email reply.');
   const payload = await response.json() as ApiInboundEmailReplyResponse;
@@ -175,14 +207,23 @@ export async function receiveInboundEmailReplyBySender(
 export async function updateOutreachPlanDraft(
   draftId: string,
   payload: { subject?: string; body: string },
+  trace?: TraceContext,
 ): Promise<PostNowDraft> {
-  const response = await fetch(documentBackendPath(`/outreach-plan-drafts/${draftId}`), {
+  const response = await loggedFetch(documentBackendPath(`/outreach-plan-drafts/${draftId}`), {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       subject: payload.subject ?? null,
       body: payload.body,
     }),
+  }, {
+    name: 'outreach_plan.save_draft',
+    context: {
+      draftId,
+      hasSubject: Boolean(payload.subject?.trim()),
+      bodyLength: payload.body.trim().length,
+    },
+    trace,
   });
   ensureResponseOk(response, 'Could not save outreach plan draft.');
   return mapApiOutreachPlanDraft(await response.json() as ApiOutreachPlanDraft);

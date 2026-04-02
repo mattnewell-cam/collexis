@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { runClientAction } from '@/lib/logging/client';
 import { Communication, CommCategory, CommSender, CommSubtype } from '@/types/communication';
 import type { Job } from '@/types/job';
 import { normalizeCommunicationDate } from '@/lib/communicationDates';
@@ -123,9 +124,13 @@ export default function CommForm({
     setSmsError('');
 
     try {
-      const sentCommunication = await sendJobEmail(job.id, {
-        recipients: [selectedEmail],
-        communication: buildCommunication(),
+      const sentCommunication = await runClientAction('communications.send_email', async trace =>
+        sendJobEmail(job.id, {
+          recipients: [selectedEmail],
+          communication: buildCommunication(),
+        }, trace), {
+        jobId: job.id,
+        recipientCount: 1,
       });
 
       onSent(sentCommunication);
@@ -143,9 +148,14 @@ export default function CommForm({
     setSmsStatus('sending');
     setSmsError('');
 
-    const result = await sendSms({
-      to: selectedPhone,
-      text: details.trim(),
+    const result = await runClientAction('communications.send_sms', async trace =>
+      sendSms({
+        to: selectedPhone,
+        text: details.trim(),
+      }, trace), {
+      jobId: job.id,
+      hasPhone: Boolean(selectedPhone),
+      textLength: details.trim().length,
     });
 
     if (!result.success) {

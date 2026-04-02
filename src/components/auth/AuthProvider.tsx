@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { logClientEvent, runClientAction } from '@/lib/logging/client';
 import type { Session } from '@supabase/supabase-js';
 import type { Credentials, UserAccount, UserProfile } from '@/types/account';
 
@@ -92,6 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single<DbProfile>();
 
       if (error || !data) {
+        logClientEvent('warn', 'auth.profile.load_missing', {
+          userId,
+        }, { sendToServer: true });
         setUser({ email, createdAt: new Date().toISOString(), profileCompleted: false, profile: { fullName: '', role: '', company: '', industry: '', phone: '', website: '' } });
         return;
       }
@@ -113,7 +117,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(null);
           }
         } catch (error) {
-          console.error('[AuthProvider] Failed during auth state change:', error);
+          logClientEvent('error', 'auth.state_sync.failed', {
+            hasSession: Boolean(session),
+            error,
+          }, { sendToServer: true });
           setUser(null);
         } finally {
           if (!cancelled) {
@@ -135,7 +142,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
         }
       } catch (error) {
-        console.error('[AuthProvider] Failed to load initial session:', error);
+        logClientEvent('error', 'auth.session_load.failed', {
+          error,
+        }, { sendToServer: true });
         if (!cancelled) {
           setUser(null);
         }
@@ -154,6 +163,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void loadInitialSession().finally(() => clearTimeout(loadingTimeout));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      logClientEvent('info', 'auth.state.changed', {
+        event,
+        hasSession: Boolean(session),
+      }, { sendToServer: true });
+
       if (event === 'PASSWORD_RECOVERY') {
         window.location.replace('/reset-password');
         return;
@@ -179,7 +193,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'Enter both your email and password.' };
     }
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await runClientAction('auth.sign_in', async () =>
+      supabase.auth.signInWithPassword({ email, password }), {
+      email,
+    });
 
     if (error) {
       return { ok: false, error: 'We could not match that email and password.' };
@@ -197,7 +214,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'Use at least 8 characters for the password.' };
     }
 
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await runClientAction('auth.sign_up', async () =>
+      supabase.auth.signUp({ email, password }), {
+      email,
+    });
 
     if (error) {
       if (error.message.toLowerCase().includes('already')) {
@@ -210,7 +230,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    await runClientAction('auth.sign_out', async () => supabase.auth.signOut());
     setUser(null);
   };
 
@@ -223,19 +243,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const sanitized = sanitizeProfile(profile);
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({
-        full_name: sanitized.fullName,
-        role: sanitized.role,
-        company: sanitized.company,
-        industry: sanitized.industry,
-        phone: sanitized.phone,
-        website: sanitized.website,
-        profile_completed: profileCompleted,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', authUser.id);
+    const { error } = await runClientAction('auth.save_profile', async () =>
+      supabase
+        .from('profiles')
+        .update({
+          full_name: sanitized.fullName,
+          role: sanitized.role,
+          company: sanitized.company,
+          industry: sanitized.industry,
+          phone: sanitized.phone,
+          website: sanitized.website,
+          profile_completed: profileCompleted,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', authUser.id), {
+      userId: authUser.id,
+      profileCompleted,
+    });
 
     if (error) {
       return { ok: false, error: 'We could not save your details.' };
@@ -280,7 +304,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ? `${window.location.origin}/reset-password`
         : `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/reset-password`;
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+    const { error } = await runClientAction('auth.request_password_reset', async () =>
+      supabase.auth.resetPasswordForEmail(email, { redirectTo }), {
+      email,
+    });
 
     if (error) {
       return { ok: false, error: 'Could not send the reset email.' };
@@ -291,15 +318,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const changePassword = async (currentPassword: string, nextPassword: string): Promise<AuthResult> => {
     const { data: { user: authUser } } = await supabase.auth.getUser();
+    const authEmail = authUser?.email;
 
-    if (!authUser?.email) {
+    if (!authEmail) {
       return { ok: false, error: 'Sign in again to change your password.' };
     }
 
     // Verify current password by re-authenticating
-    const { error: verifyError } = await supabase.auth.signInWithPassword({
-      email: authUser.email,
-      password: currentPassword,
+    const { error: verifyError } = await runClientAction('auth.verify_current_password', async () =>
+      supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: currentPassword,
+      }), {
+      email: authEmail,
     });
 
     if (verifyError) {
@@ -310,7 +341,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'Use at least 8 characters for the new password.' };
     }
 
-    const { error } = await supabase.auth.updateUser({ password: nextPassword });
+    const { error } = await runClientAction('auth.change_password', async () =>
+      supabase.auth.updateUser({ password: nextPassword }), {
+      email: authEmail,
+    });
 
     if (error) {
       return { ok: false, error: 'We could not update your password.' };

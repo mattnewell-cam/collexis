@@ -1,3 +1,5 @@
+import { loggedFetch } from './logging/fetch';
+
 interface SendMetaWhatsAppTextInput {
   to: string;
   textBody: string;
@@ -70,7 +72,7 @@ export async function sendMetaWhatsAppText({
     throw new Error(whatsAppConfigurationError() ?? 'WhatsApp is not configured.');
   }
 
-  const response = await fetch(`${metaGraphApiUrl}/${defaultApiVersion}/${phoneNumberId}/messages`, {
+  const response = await loggedFetch(`${metaGraphApiUrl}/${defaultApiVersion}/${phoneNumberId}/messages`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -87,6 +89,13 @@ export async function sendMetaWhatsAppText({
       },
     }),
     cache: 'no-store',
+  }, {
+    name: 'provider.whatsapp.send_text',
+    context: {
+      phoneNumberId,
+      textLength: textBody.trim().length,
+    },
+    source: 'next-api',
   });
 
   if (!response.ok) {

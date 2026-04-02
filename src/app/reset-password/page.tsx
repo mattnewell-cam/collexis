@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { runClientAction } from '@/lib/logging/client';
 import { createClient } from '@/lib/supabase/client';
 
 export default function ResetPasswordPage() {
@@ -26,7 +27,10 @@ export default function ResetPasswordPage() {
 
     setBusy(true);
     const supabase = createClient();
-    const { error: updateError } = await supabase.auth.updateUser({ password });
+    const { error: updateError } = await runClientAction('auth.reset_password', async () =>
+      supabase.auth.updateUser({ password }), {
+      passwordLength: password.length,
+    });
     setBusy(false);
 
     if (updateError) {

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, KeyboardEvent } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { runClientAction } from '@/lib/logging/client';
+import { loggedFetch } from '@/lib/logging/fetch';
 import { Job, JobStatus } from '@/types/job';
 
 const JOB_STATUSES: JobStatus[] = [
@@ -179,18 +181,31 @@ export default function JobDetailsForm({ job }: { job: Job }) {
     setSaveError(null);
 
     try {
-      const response = await fetch(`/api/jobs/${draft.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(draft),
+      await runClientAction('jobs.save_details', async trace => {
+        const response = await loggedFetch(`/api/jobs/${draft.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft),
+        }, {
+          name: 'jobs.save_details_request',
+          context: {
+            jobId: draft.id,
+            status: draft.status,
+            emailCount: draft.emails.length,
+            phoneCount: draft.phones.length,
+          },
+          trace,
+        });
+
+        if (!response.ok) {
+          throw new Error('Could not save job details.');
+        }
+
+        router.push(`/console/jobs/${draft.id}/communications?notice=timeline-review`);
+        router.refresh();
+      }, {
+        jobId: draft.id,
       });
-
-      if (!response.ok) {
-        throw new Error('Could not save job details.');
-      }
-
-      router.push(`/console/jobs/${draft.id}/communications?notice=timeline-review`);
-      router.refresh();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : 'Could not save job details.');
     } finally {

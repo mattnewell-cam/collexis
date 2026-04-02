@@ -3,6 +3,8 @@
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { documentBackendPath } from '@/lib/documentBackend';
+import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
+import { loggedFetch } from '@/lib/logging/fetch';
 import type { DocumentRecord } from '@/types/document';
 
 type ApiDocumentRecord = {
@@ -169,7 +171,10 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     if (showLoading) setLoading(true);
 
     try {
-      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
+      const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
+        name: 'documents.fetch_view',
+        context: { jobId, showLoading },
+      });
       if (!response.ok) {
         throw new Error('Could not load documents.');
       }
@@ -201,7 +206,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
   useEffect(() => () => {
     Object.values(saveTimers.current).forEach(timer => clearTimeout(timer));
-  }, []);
+  }, [jobId]);
 
   const persistDocument = useCallback(async (documentId: string) => {
     const current = latestDocuments.current.find(doc => doc.id === documentId);
@@ -214,7 +219,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     ));
 
     try {
-      const response = await fetch(documentBackendPath(`/documents/${documentId}`), {
+      const response = await loggedFetch(documentBackendPath(`/documents/${documentId}`), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -223,6 +228,12 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
           description: current.description,
           transcript: current.transcript,
         }),
+      }, {
+        name: 'documents.save_metadata',
+        context: {
+          jobId,
+          documentId,
+        },
       });
 
       if (!response.ok) {
@@ -243,7 +254,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
           : doc,
       ));
     }
-  }, []);
+  }, [jobId]);
 
   const scheduleSave = useCallback((documentId: string) => {
     const existingTimer = saveTimers.current[documentId];
@@ -273,7 +284,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     scheduleSave(documentId);
   }, [scheduleSave]);
 
-  const uploadFile = useCallback(async (file: File) => {
+  const uploadFile = useCallback(async (file: File, trace?: ClientActionTrace) => {
     const tempId = `temp-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     setDocuments(prev => [
@@ -302,9 +313,17 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     formData.append('file', file);
 
     try {
-      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), {
+      const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), {
         method: 'POST',
         body: formData,
+      }, {
+        name: 'documents.upload_from_view',
+        context: {
+          jobId,
+          fileSize: file.size,
+          mimeType: file.type || null,
+        },
+        trace,
       });
 
       if (!response.ok) {
@@ -318,14 +337,22 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
       const message = error instanceof Error ? error.message : 'Could not upload document.';
       setDocuments(prev => prev.filter(doc => doc.id !== tempId));
       setPageError(message);
+      throw new Error(message);
     }
   }, [jobId]);
 
   const addFiles = useCallback(async (incoming: FileList | null) => {
     if (!incoming || !jobId) return;
     setUploading(true);
-    await Promise.all(Array.from(incoming).map(uploadFile));
-    setUploading(false);
+    try {
+      await runClientAction('documents.upload_from_documents_view', async trace =>
+        Promise.all(Array.from(incoming).map(file => uploadFile(file, trace))), {
+        jobId,
+        fileCount: incoming.length,
+      });
+    } finally {
+      setUploading(false);
+    }
   }, [jobId, uploadFile]);
 
   const onDrop = useCallback((event: React.DragEvent) => {

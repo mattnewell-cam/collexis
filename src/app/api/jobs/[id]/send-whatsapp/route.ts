@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { documentBackendOrigin } from '@/lib/documentBackend';
+import { loggedFetch } from '@/lib/logging/fetch';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
 import {
@@ -100,8 +102,8 @@ function normalizeCommunication(value: unknown): Communication | null {
   };
 }
 
-async function createTimelineItem(jobId: string, communication: Communication) {
-  const response = await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
+async function createTimelineItem(jobId: string, communication: Communication, trace?: { requestId?: string; actionId?: string; sessionId?: string }) {
+  const response = await loggedFetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -113,6 +115,11 @@ async function createTimelineItem(jobId: string, communication: Communication) {
       details: communication.details,
     }),
     cache: 'no-store',
+  }, {
+    name: 'timeline.create_from_whatsapp_send',
+    context: { jobId, category: communication.category, subtype: communication.subtype ?? null },
+    trace,
+    source: 'next-api',
   });
 
   if (!response.ok) {
@@ -123,10 +130,11 @@ async function createTimelineItem(jobId: string, communication: Communication) {
   return await response.json() as TimelineCreateResponse;
 }
 
-export async function POST(
+export const POST = withRouteLogging('communications.send_whatsapp', async (
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-) {
+  log,
+) => {
   const configurationError = whatsAppConfigurationError();
   if (configurationError) {
     return NextResponse.json({ error: configurationError }, { status: 500 });
@@ -173,6 +181,10 @@ export async function POST(
   }
 
   try {
+    log.info('communications.send_whatsapp.attempt', {
+      jobId: id,
+      recipientCount: recipients.length,
+    });
     const deliveryResponses = await Promise.all(
       recipients.map(to => sendMetaWhatsAppText({
         to,
@@ -183,14 +195,19 @@ export async function POST(
     const timelineItem = await createTimelineItem(id, {
       ...communication,
       details: `To: ${recipients.join(', ')}\n\n${communication.details.trim()}`,
-    });
+    }, log.trace);
 
     return NextResponse.json({
       timelineItem,
       messageIds: deliveryResponses.map(result => result.messageId),
     });
   } catch (error) {
+    log.error('communications.send_whatsapp.failed', {
+      jobId: id,
+      recipientCount: recipients.length,
+      error,
+    });
     const message = error instanceof Error ? error.message : 'Could not send WhatsApp.';
     return NextResponse.json({ error: message }, { status: 502 });
   }
-}
+});

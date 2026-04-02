@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import re
 from datetime import datetime
 from functools import lru_cache
@@ -12,6 +13,7 @@ from typing import Callable
 from openai import OpenAI
 
 from .config import Settings
+from .logging_utils import log_event
 from .repository import DocumentRepository, filename_stem
 from .schemas import ExtractedDocument, JobIntakeSummary, ProcessingProfile, TimelineDecision
 
@@ -49,6 +51,7 @@ TIMELINE_PLANNING_PROMPT = (
 CHASE_SUBTYPES = {"email", "sms", "whatsapp", "facebook", "voicemail", "home-visit"}
 CONVERSATION_SUBTYPES = {"email", "sms", "whatsapp", "facebook", "phone", "in-person"}
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -963,6 +966,16 @@ def process_document(
     if document is None:
         return
 
+    job_id = str(document["job_id"])
+    log_event(
+        logger,
+        logging.INFO,
+        "documents.processing.started",
+        document_id=document_id,
+        job_id=job_id,
+        processing_profile=processing_profile,
+    )
+
     planner = timeline_planner or (
         lambda current_document, normalized_document, existing_timeline_items, current_settings: plan_document_timeline(
             document=current_document,
@@ -1018,9 +1031,27 @@ def process_document(
             status="ready",
             extraction_error=None,
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "documents.processing.completed",
+            document_id=document_id,
+            job_id=job_id,
+            processing_profile=processing_profile,
+            outcome=normalized_timeline["action"],
+        )
     except Exception as exc:
         repository.update_fields(
             document_id,
             status="failed",
             extraction_error=str(exc).strip() or "Document extraction failed.",
+        )
+        log_event(
+            logger,
+            logging.ERROR,
+            "documents.processing.failed",
+            document_id=document_id,
+            job_id=job_id,
+            processing_profile=processing_profile,
+            error=exc,
         )

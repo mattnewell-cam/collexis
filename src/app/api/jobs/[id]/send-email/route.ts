@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { documentBackendOrigin } from '@/lib/documentBackend';
+import { loggedFetch } from '@/lib/logging/fetch';
+import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
 import { brevoConfigurationError, sendBrevoEmail } from '@/lib/brevoEmail';
@@ -70,8 +72,8 @@ function normalizeCommunication(value: unknown): Communication | null {
   };
 }
 
-async function createTimelineItem(jobId: string, communication: Communication) {
-  const response = await fetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
+async function createTimelineItem(jobId: string, communication: Communication, trace?: { requestId?: string; actionId?: string; sessionId?: string }) {
+  const response = await loggedFetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -83,6 +85,11 @@ async function createTimelineItem(jobId: string, communication: Communication) {
       details: communication.details,
     }),
     cache: 'no-store',
+  }, {
+    name: 'timeline.create_from_email_send',
+    context: { jobId, category: communication.category, subtype: communication.subtype ?? null },
+    trace,
+    source: 'next-api',
   });
 
   if (!response.ok) {
@@ -93,10 +100,11 @@ async function createTimelineItem(jobId: string, communication: Communication) {
   return await response.json() as TimelineCreateResponse;
 }
 
-export async function POST(
+export const POST = withRouteLogging('communications.send_email', async (
   request: Request,
   { params }: { params: Promise<{ id: string }> },
-) {
+  log,
+) => {
   const configurationError = brevoConfigurationError();
   if (configurationError) {
     return NextResponse.json({ error: configurationError }, { status: 500 });
@@ -139,6 +147,10 @@ export async function POST(
   }
 
   try {
+    log.info('communications.send_email.attempt', {
+      jobId: id,
+      recipientCount: recipients.length,
+    });
     const brevoResponse = await sendBrevoEmail({
       to: recipients.map(email => ({
         email,
@@ -151,14 +163,19 @@ export async function POST(
     const timelineItem = await createTimelineItem(id, {
       ...communication,
       details: `Subject: ${communication.shortDescription.trim()}\n\n${communication.details.trim()}`,
-    });
+    }, log.trace);
 
     return NextResponse.json({
       timelineItem,
       messageId: brevoResponse.messageId,
     });
   } catch (error) {
+    log.error('communications.send_email.failed', {
+      jobId: id,
+      recipientCount: recipients.length,
+      error,
+    });
     const message = error instanceof Error ? error.message : 'Could not send email.';
     return NextResponse.json({ error: message }, { status: 502 });
   }
-}
+});

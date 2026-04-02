@@ -4,6 +4,8 @@ import { useRef, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { mergeJobWithIntakeSummary } from '@/lib/jobStore';
 import { documentBackendPath } from '@/lib/documentBackend';
+import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
+import { loggedFetch } from '@/lib/logging/fetch';
 import type { Job, JobIntakeSummary } from '@/types/job';
 
 interface Props {
@@ -91,11 +93,15 @@ export default function AddJobModal({ open, onClose }: Props) {
     onClose();
   };
 
-  const waitForDocumentsToSettle = useCallback(async (jobId: string, documentIds: string[]) => {
+  const waitForDocumentsToSettle = useCallback(async (jobId: string, documentIds: string[], trace?: ClientActionTrace) => {
     if (documentIds.length === 0) return;
 
     while (true) {
-      const response = await fetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' });
+      const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
+        name: 'jobs.poll_document_status',
+        context: { jobId, documentCount: documentIds.length },
+        trace,
+      });
       if (!response.ok) {
         throw new Error('Could not check document processing.');
       }
@@ -118,11 +124,15 @@ export default function AddJobModal({ open, onClose }: Props) {
     }
   }, []);
 
-  const persistMergedJob = useCallback(async (job: Job) => {
-    const response = await fetch(`/api/jobs/${job.id}`, {
+  const persistMergedJob = useCallback(async (job: Job, trace?: ClientActionTrace) => {
+    const response = await loggedFetch(`/api/jobs/${job.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(job),
+    }, {
+      name: 'jobs.persist_processed_details',
+      context: { jobId: job.id },
+      trace,
     });
 
     if (!response.ok) {
@@ -136,77 +146,104 @@ export default function AddJobModal({ open, onClose }: Props) {
     setSubmitting(true);
     setProcessingError(null);
     try {
-      if (files.length > 0) {
-        setPhase('processing');
-        setProcessingTitle('Creating job');
-        setProcessingDetail('We are setting up the intake workspace for your documents.');
-      }
+      await runClientAction('jobs.create', async trace => {
+        if (files.length > 0) {
+          setPhase('processing');
+          setProcessingTitle('Creating job');
+          setProcessingDetail('We are setting up the intake workspace for your documents.');
+        }
 
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: name.trim(),
-          address: address.trim(),
-          documents: files.map(file => file.name),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Could not create job.');
-      }
-
-      const payload = await response.json() as { job: Job };
-
-      if (files.length === 0) {
-        close(true);
-        router.push(`/console/jobs/${payload.job.id}/details`);
-        router.refresh();
-        return;
-      }
-
-      const documentIds: string[] = [];
-      for (const [index, file] of files.entries()) {
-        setProcessingTitle(`Uploading documents`);
-        setProcessingDetail(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('processing_profile', 'job-intake');
-
-        const uploadResponse = await fetch(documentBackendPath(`/jobs/${payload.job.id}/documents`), {
+        const response = await loggedFetch('/api/jobs', {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name.trim(),
+            address: address.trim(),
+            documents: files.map(file => file.name),
+          }),
+        }, {
+          name: 'jobs.create_request',
+          context: {
+            hasAddress: Boolean(address.trim()),
+            documentCount: files.length,
+          },
+          trace,
         });
 
-        if (!uploadResponse.ok) {
-          throw new Error(`Could not upload ${file.name}.`);
+        if (!response.ok) {
+          throw new Error('Could not create job.');
         }
 
-        const createdDocument = await uploadResponse.json() as { id: string };
-        documentIds.push(createdDocument.id);
-      }
+        const payload = await response.json() as { job: Job };
 
-      await waitForDocumentsToSettle(payload.job.id, documentIds);
-
-      setProcessingTitle('Building job details');
-      setProcessingDetail('We are turning the processed documents into job details and communications.');
-
-      let mergedJob = payload.job;
-      try {
-        const summaryResponse = await fetch(documentBackendPath(`/jobs/${payload.job.id}/intake-summary`), { cache: 'no-store' });
-        if (summaryResponse.ok) {
-          const summary = mapApiJobIntakeSummary(await summaryResponse.json() as ApiJobIntakeSummary);
-          mergedJob = mergeJobWithIntakeSummary(payload.job, summary);
+        if (files.length === 0) {
+          close(true);
+          router.push(`/console/jobs/${payload.job.id}/details`);
+          router.refresh();
+          return;
         }
-      } catch {
-        // If summary generation fails, keep moving so the user can still review documents and timeline manually.
-      }
-      await persistMergedJob(mergedJob);
 
-      close(true);
-      router.push(`/console/jobs/${payload.job.id}/details?notice=docs-processed`);
-      router.refresh();
+        const documentIds: string[] = [];
+        for (const [index, file] of files.entries()) {
+          setProcessingTitle('Uploading documents');
+          setProcessingDetail(`Uploading ${index + 1} of ${files.length}: ${file.name}`);
+
+          const formData = new FormData();
+          formData.append('file', file);
+          formData.append('processing_profile', 'job-intake');
+
+          const uploadResponse = await loggedFetch(documentBackendPath(`/jobs/${payload.job.id}/documents`), {
+            method: 'POST',
+            body: formData,
+          }, {
+            name: 'jobs.upload_intake_document',
+            context: {
+              jobId: payload.job.id,
+              fileIndex: index + 1,
+              fileCount: files.length,
+              fileSize: file.size,
+              mimeType: file.type || null,
+            },
+            trace,
+          });
+
+          if (!uploadResponse.ok) {
+            throw new Error(`Could not upload ${file.name}.`);
+          }
+
+          const createdDocument = await uploadResponse.json() as { id: string };
+          documentIds.push(createdDocument.id);
+        }
+
+        await waitForDocumentsToSettle(payload.job.id, documentIds, trace);
+
+        setProcessingTitle('Building job details');
+        setProcessingDetail('We are turning the processed documents into job details and communications.');
+
+        let mergedJob = payload.job;
+        try {
+          const summaryResponse = await loggedFetch(documentBackendPath(`/jobs/${payload.job.id}/intake-summary`), { cache: 'no-store' }, {
+            name: 'jobs.fetch_intake_summary',
+            context: { jobId: payload.job.id },
+            trace,
+          });
+          if (summaryResponse.ok) {
+            const summary = mapApiJobIntakeSummary(await summaryResponse.json() as ApiJobIntakeSummary);
+            mergedJob = mergeJobWithIntakeSummary(payload.job, summary);
+          }
+        } catch {
+          // If summary generation fails, keep moving so the user can still review documents and timeline manually.
+        }
+
+        await persistMergedJob(mergedJob, trace);
+
+        close(true);
+        router.push(`/console/jobs/${payload.job.id}/details?notice=docs-processed`);
+        router.refresh();
+      }, {
+        hasAddress: Boolean(address.trim()),
+        documentCount: files.length,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not complete the intake processing.';
       setPhase('processing');

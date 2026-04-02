@@ -1,5 +1,7 @@
 import type { Communication } from '@/types/communication';
 import { mapApiTimelineItem, type ApiTimelineItem } from './backendTimeline';
+import { loggedFetch } from './logging/fetch';
+import type { TraceContext } from './logging/shared';
 
 interface SendJobEmailInput {
   recipients: string[];
@@ -15,14 +17,24 @@ function ensureResponseOk(response: Response, fallbackMessage: string) {
 export async function sendJobEmail(
   jobId: string,
   { recipients, communication }: SendJobEmailInput,
+  trace?: TraceContext,
 ): Promise<Communication> {
-  const response = await fetch(`/api/jobs/${jobId}/send-email`, {
+  const response = await loggedFetch(`/api/jobs/${jobId}/send-email`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       recipients,
       communication,
     }),
+  }, {
+    name: 'communications.send_email',
+    context: {
+      jobId,
+      recipientCount: recipients.length,
+      subjectLength: communication.shortDescription.trim().length,
+      bodyLength: communication.details.trim().length,
+    },
+    trace,
   });
 
   if (!response.ok) {

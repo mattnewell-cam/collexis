@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createJob } from '@/lib/jobStore';
+import { withRouteLogging } from '@/lib/logging/server';
 
-export async function POST(request: Request) {
+export const POST = withRouteLogging('jobs.create', async (request, _context, log) => {
   const payload = await request.json() as {
     name?: unknown;
     address?: unknown;
@@ -27,9 +28,18 @@ export async function POST(request: Request) {
   }
 
   try {
+    log.info('jobs.create.attempt', {
+      userId: user.id,
+      hasAddress: Boolean(address),
+      documentCount: documents.length,
+    });
     const job = await createJob(supabase, user.id, { name, address, documents });
     return NextResponse.json({ job });
-  } catch {
+  } catch (error) {
+    log.error('jobs.create.failed', {
+      userId: user.id,
+      error,
+    });
     return NextResponse.json({ error: 'Could not create job.' }, { status: 500 });
   }
-}
+});

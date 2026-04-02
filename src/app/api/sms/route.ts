@@ -1,4 +1,5 @@
 import Telnyx from 'telnyx';
+import { withRouteLogging } from '@/lib/logging/server';
 
 const telnyxApiKey = process.env.TELNYX_API_KEY ?? '';
 const telnyxFromNumber = process.env.TELNYX_FROM_NUMBER ?? '';
@@ -18,7 +19,7 @@ function telnyxClient() {
   return new Telnyx({ apiKey: telnyxApiKey });
 }
 
-export async function POST(request: Request) {
+export const POST = withRouteLogging('communications.send_sms_route', async (request: Request, _context, log) => {
   const payload = await request.json().catch(() => null) as SmsPayload | null;
   const to = typeof payload?.to === 'string' ? payload.to.trim() : '';
   const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
@@ -37,6 +38,10 @@ export async function POST(request: Request) {
   }
 
   try {
+    log.info('communications.send_sms.attempt', {
+      hasFrom: Boolean(from),
+      textLength: text.length,
+    });
     const client = telnyxClient();
     const message = await client.messages.send({
       from,
@@ -51,7 +56,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send SMS.';
-    console.error('[Telnyx] Send SMS error:', error);
+    log.error('communications.send_sms.failed', { error });
     return Response.json({ error: message }, { status: 502 });
   }
-}
+});
