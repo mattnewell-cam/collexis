@@ -8,7 +8,12 @@ from fastapi.testclient import TestClient
 from backend.app.config import Settings
 from backend.app.database import connect, init_db
 from backend.app.main import create_app
-from backend.app.outreach_drafting import ensure_outreach_plan_drafts
+from backend.app.outreach_drafting import (
+    POST_HANDOVER_OUTREACH_DRAFTING_PROMPT,
+    PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT,
+    build_drafting_payload,
+    ensure_outreach_plan_drafts,
+)
 from backend.app.outreach_planning import generate_outreach_plan
 from backend.app.repository import DocumentRepository
 from backend.app.repository_supabase import SupabaseDocumentRepository
@@ -748,6 +753,163 @@ def test_ensure_outreach_plan_drafts_only_creates_missing_next_week_drafts() -> 
             "is_user_edited": False,
         }
     ]
+
+
+def test_build_drafting_payload_marks_first_collexis_contacts_and_channels() -> None:
+    payload = build_drafting_payload(
+        job_snapshot=build_job_snapshot(),
+        timeline_items=[],
+        documents=[],
+        plan_steps=[
+            {
+                "id": "step-email-1",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Initial email",
+                "scheduled_for": "2026-03-31T11:00:00+01:00",
+            },
+            {
+                "id": "step-sms-1",
+                "job_id": "job-123",
+                "type": "sms",
+                "sender": "collexis",
+                "headline": "Initial sms",
+                "scheduled_for": "2026-04-01T10:15:00+01:00",
+            },
+            {
+                "id": "step-email-2",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Follow-up email",
+                "scheduled_for": "2026-04-02T11:00:00+01:00",
+            },
+        ],
+        existing_drafts=[],
+        target_steps=[
+            {
+                "id": "step-email-1",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Initial email",
+                "scheduled_for": "2026-03-31T11:00:00+01:00",
+            },
+            {
+                "id": "step-sms-1",
+                "job_id": "job-123",
+                "type": "sms",
+                "sender": "collexis",
+                "headline": "Initial sms",
+                "scheduled_for": "2026-04-01T10:15:00+01:00",
+            },
+            {
+                "id": "step-email-2",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Follow-up email",
+                "scheduled_for": "2026-04-02T11:00:00+01:00",
+            },
+        ],
+        now_local=datetime.fromisoformat("2026-03-30T08:00:00+01:00"),
+    )
+
+    target_steps = {step["plan_step_id"]: step for step in payload["target_steps"]}
+    assert target_steps["step-email-1"]["is_first_collexis_contact"] is True
+    assert target_steps["step-email-1"]["is_first_collexis_contact_for_type"] is True
+    assert "professional collections tone" in target_steps["step-email-1"]["introductory_guidance"]
+    assert target_steps["step-sms-1"]["is_first_collexis_contact"] is False
+    assert target_steps["step-sms-1"]["is_first_collexis_contact_for_type"] is True
+    assert "professional collections tone" in target_steps["step-sms-1"]["introductory_guidance"]
+    assert target_steps["step-email-2"]["is_first_collexis_contact"] is False
+    assert target_steps["step-email-2"]["is_first_collexis_contact_for_type"] is False
+    assert target_steps["step-email-2"]["introductory_guidance"] is None
+
+
+def test_build_drafting_payload_marks_first_planned_channels_even_with_past_history() -> None:
+    payload = build_drafting_payload(
+        job_snapshot=build_job_snapshot(),
+        timeline_items=[
+            {
+                "id": "historic-email",
+                "category": "chase",
+                "subtype": "email",
+                "sender": "collexis",
+                "date": "2026-03-20",
+                "short_description": "Historic email",
+                "details": "",
+            },
+            {
+                "id": "historic-sms",
+                "category": "chase",
+                "subtype": "sms",
+                "sender": "collexis",
+                "date": "2026-03-21",
+                "short_description": "Historic sms",
+                "details": "",
+            },
+        ],
+        documents=[],
+        plan_steps=[
+            {
+                "id": "step-whatsapp-1",
+                "job_id": "job-123",
+                "type": "whatsapp",
+                "sender": "collexis",
+                "headline": "Initial whatsapp",
+                "scheduled_for": "2026-03-31T11:00:00+01:00",
+            },
+            {
+                "id": "step-email-1",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Initial email",
+                "scheduled_for": "2026-04-01T10:15:00+01:00",
+            },
+        ],
+        existing_drafts=[],
+        target_steps=[
+            {
+                "id": "step-whatsapp-1",
+                "job_id": "job-123",
+                "type": "whatsapp",
+                "sender": "collexis",
+                "headline": "Initial whatsapp",
+                "scheduled_for": "2026-03-31T11:00:00+01:00",
+            },
+            {
+                "id": "step-email-1",
+                "job_id": "job-123",
+                "type": "email",
+                "sender": "collexis",
+                "headline": "Initial email",
+                "scheduled_for": "2026-04-01T10:15:00+01:00",
+            },
+        ],
+        now_local=datetime.fromisoformat("2026-03-30T08:00:00+01:00"),
+    )
+
+    target_steps = {step["plan_step_id"]: step for step in payload["target_steps"]}
+    assert target_steps["step-whatsapp-1"]["is_first_collexis_contact"] is True
+    assert target_steps["step-whatsapp-1"]["is_first_collexis_contact_for_type"] is True
+    assert target_steps["step-email-1"]["is_first_collexis_contact"] is False
+    assert target_steps["step-email-1"]["is_first_collexis_contact_for_type"] is True
+
+
+def test_outreach_drafting_prompts_require_introductory_collexis_explanation() -> None:
+    assert "introductory_guidance" in PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "professional, measured, and credible" in PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "Do not use casual or chatty openings such as 'Collexis here'" in PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "formally identify Collexis" in PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "debt collection agency" in PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "introductory_guidance" in POST_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "professional, measured, and credible" in POST_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "Do not use casual or chatty openings such as 'Collexis here'" in POST_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "formally identify Collexis" in POST_HANDOVER_OUTREACH_DRAFTING_PROMPT
+    assert "debt collection agency" in POST_HANDOVER_OUTREACH_DRAFTING_PROMPT
 
 
 def test_outreach_plan_api_uses_latest_job_snapshot_and_ready_documents_only(tmp_path: Path) -> None:

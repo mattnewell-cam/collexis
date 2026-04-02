@@ -42,10 +42,13 @@ interface PendingUndoDelete {
 }
 
 type PlanConfirmState =
+  | 'generate'
   | 'regenerate'
   | 'generate-missing-phone'
   | 'regenerate-missing-phone'
   | null;
+
+const outreachPlannerGuidanceLabel = 'Outreach planner tone guidance:';
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -55,6 +58,26 @@ function sanitizeHandoverDays(value: string, fallback = defaultHandoverDays) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) return fallback;
   return Math.max(0, parsed);
+}
+
+function extractOutreachPlannerGuidance(contextInstructions: string) {
+  const markerIndex = contextInstructions.indexOf(outreachPlannerGuidanceLabel);
+  if (markerIndex === -1) return '';
+  return contextInstructions.slice(markerIndex + outreachPlannerGuidanceLabel.length).trim();
+}
+
+function mergeOutreachPlannerGuidance(contextInstructions: string, plannerGuidance: string) {
+  const markerIndex = contextInstructions.indexOf(outreachPlannerGuidanceLabel);
+  const preservedInstructions = (markerIndex === -1
+    ? contextInstructions
+    : contextInstructions.slice(0, markerIndex)
+  ).trim();
+  const nextPlannerGuidance = plannerGuidance.trim();
+
+  return [
+    preservedInstructions,
+    nextPlannerGuidance ? `${outreachPlannerGuidanceLabel}\n${nextPlannerGuidance}` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 function isPastHandover(plannedHandoverAt: string | null) {
@@ -102,6 +125,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null);
   const [showTimelineNotice, setShowTimelineNotice] = useState(searchParams.get('notice') === 'timeline-review');
   const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
+  const [planToneInput, setPlanToneInput] = useState(extractOutreachPlannerGuidance(job.contextInstructions));
   const deleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobIdRef = useRef(job.id);
 
@@ -116,6 +140,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   useEffect(() => {
     setJobState(job);
     setHandoverDaysInput(String(job.handoverDays ?? defaultHandoverDays));
+    setPlanToneInput(extractOutreachPlannerGuidance(job.contextInstructions));
   }, [job]);
 
   useEffect(() => {
@@ -245,7 +270,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       trace,
     });
     if (!response.ok) {
-      throw new Error('Could not save handover settings.');
+      throw new Error('Could not save job changes.');
     }
     const result = await response.json() as { job: Job };
     setJobState(result.job);
@@ -379,6 +404,11 @@ export default function JobCommsView({ job }: { job: Job }) {
           patch.handoverDays = normalizedDays;
         }
 
+        const nextContextInstructions = mergeOutreachPlannerGuidance(jobState.contextInstructions, planToneInput);
+        if (nextContextInstructions !== jobState.contextInstructions) {
+          patch.contextInstructions = nextContextInstructions;
+        }
+
         const nextHandoverAt = nextPlannedHandoverAt(jobState, normalizedDays);
         if (nextHandoverAt !== jobState.plannedHandoverAt) {
           patch.plannedHandoverAt = nextHandoverAt;
@@ -406,7 +436,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, refreshPlanDrafts]);
+  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planToneInput, refreshPlanDrafts]);
 
   const requestPlanGeneration = useCallback(() => {
     if (planGenerating) return;
@@ -414,12 +444,8 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanConfirmState(hasGeneratedPlan ? 'regenerate-missing-phone' : 'generate-missing-phone');
       return;
     }
-    if (hasGeneratedPlan) {
-      setPlanConfirmState('regenerate');
-      return;
-    }
-    void handleGeneratePlan();
-  }, [hasGeneratedPlan, hasPhoneContact, handleGeneratePlan, planGenerating]);
+    setPlanConfirmState(hasGeneratedPlan ? 'regenerate' : 'generate');
+  }, [hasGeneratedPlan, hasPhoneContact, planGenerating]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -728,6 +754,22 @@ export default function JobCommsView({ job }: { job: Job }) {
                 ? 'Regenerating the outreach plan will replace the current future steps for this job.'
                 : 'Generate the next-step outreach plan for this job.'}
             </p>
+            <div className="mt-4">
+              <label htmlFor="plan-tone-input" className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+                Tone / Extra Context
+              </label>
+              <textarea
+                id="plan-tone-input"
+                value={planToneInput}
+                onChange={event => setPlanToneInput(event.target.value)}
+                rows={4}
+                placeholder="Optional. Tell Collexis how formal or firm to be, or add useful context about the debtor relationship."
+                className="mt-2 w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa]"
+              />
+              <p className="mt-2 text-sm leading-6 text-gray-500">
+                This is passed into the planner so the drafts can match the collector&apos;s read on the case.
+              </p>
+            </div>
             {planConfirmNeedsPhoneWarning ? (
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">No phone number is saved for this job.</p>
@@ -752,7 +794,7 @@ export default function JobCommsView({ job }: { job: Job }) {
               >
                 {planConfirmNeedsPhoneWarning
                   ? planConfirmWillReplace ? 'Regenerate anyway' : 'Generate anyway'
-                  : 'Regenerate plan'}
+                  : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
               </button>
             </div>
           </div>

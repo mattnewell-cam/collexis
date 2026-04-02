@@ -38,15 +38,27 @@ ELIGIBLE_DRAFT_STEP_TYPES: set[OutreachPlanStepType] = {
     "letter-warning",
     "letter-of-claim",
 }
+INTRODUCTORY_STEP_TYPES: set[OutreachPlanStepType] = {
+    "email",
+    "sms",
+    "whatsapp",
+    "call",
+}
 
 PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT = (
     "Draft the outbound communications for the requested outreach-plan steps. Return only the schema. "
     "Use the latest job snapshot, the full past communications timeline, ready document summaries/transcripts, "
     "the full outreach plan, and any already-drafted earlier communications as context. "
     "Treat explicit instructions in context_instructions as binding for tone, channel use, and channel avoidance. "
+    "Each target step may include introductory_guidance. If it does, you must follow it in that draft. "
     "This is the pre-handover phase. Collexis is acting as outsourced chase support. "
     "Write in Collexis' voice, but tell the debtor to pay the original creditor or client business, not Collexis. "
     "Do not include Collexis bank details, direct-to-Collexis payment instructions, warning-letter language, letter-of-claim language, or court-fee wording. "
+    "Keep the tone professional, measured, and credible. Collexis should sound like a debt collection agency that has been instructed to recover an unpaid balance, not like a friend, a chatbot, or an aggressive thug. "
+    "Do not use casual or chatty openings such as 'Collexis here', slang, banter, emojis, or overly warm language. "
+    "For the first Collexis-authored contact overall, and the first Collexis-authored use of a new channel when that message could be read in isolation, formally identify Collexis, explain that Collexis has been instructed to collect the outstanding balance on behalf of the client business, and say we would prefer to resolve the matter professionally and amicably. "
+    "Those introductory drafts should read like formal collections outreach, even on SMS or WhatsApp. "
+    "Do not repeat that introduction in every later touch. "
     "Draft only the requested target steps. Assume no response to any earlier planned step; if a reply were received, this flow would stop and be replanned. "
     "Do not invent facts, promises, concessions, legal claims, payment arrangements, or attachments not grounded in the provided context and plan. "
     "For email steps, provide a subject and a full email body. "
@@ -60,9 +72,15 @@ POST_HANDOVER_OUTREACH_DRAFTING_PROMPT = (
     "Use the latest job snapshot, the full past communications timeline, ready document summaries/transcripts, "
     "the full outreach plan, and any already-drafted earlier communications as context. "
     "Treat explicit instructions in context_instructions as binding for tone, channel use, and channel avoidance. "
+    "Each target step may include introductory_guidance. If it does, you must follow it in that draft. "
     "This is the post-handover phase. Collexis is now acting as the debt collector. "
     "Write in Collexis' voice and demand direct payment to Collexis using the supplied sort code and account number. "
     "Warn that court fees will be added if court action becomes necessary, but do not state that those fees are already due unless the supplied context explicitly says so. "
+    "Keep the tone professional, measured, and credible. Collexis should sound like a debt collection agency handling formal recovery action, not like a friend, a chatbot, or a bully. "
+    "Do not use casual or chatty openings such as 'Collexis here', slang, banter, emojis, or overly warm language. "
+    "For the first Collexis-authored contact overall, and the first Collexis-authored use of a new channel when that message could be read in isolation, formally identify Collexis, explain that Collexis is handling the account for recovery, and say we would prefer to resolve the matter professionally and amicably before things escalate. "
+    "Those introductory drafts should read like formal collections outreach, even on SMS or WhatsApp. "
+    "Do not repeat that introduction in every later touch. "
     "Draft only the requested target steps. Assume no response to any earlier planned step; if a reply were received, this flow would stop and be replanned. "
     "Do not invent facts, promises, concessions, legal claims, payment arrangements, or attachments not grounded in the provided context and plan. "
     "Keep tone and legal wording consistent with the case history and the planned legal timeline. "
@@ -91,6 +109,67 @@ def normalize_draft_body(body: object) -> str:
     return clean_text(body)
 
 
+def is_collexis_sender(sender: object) -> bool:
+    return clean_text(sender).lower() == "collexis"
+
+
+def build_introductory_guidance(
+    *,
+    timeline_items: list[dict[str, object]],
+    plan_steps: list[dict[str, object]],
+) -> dict[str, dict[str, bool]]:
+    _ = timeline_items
+    seen_overall = False
+    seen_by_type: dict[OutreachPlanStepType, bool] = {
+        step_type: False for step_type in INTRODUCTORY_STEP_TYPES
+    }
+
+    def sort_key(step: dict[str, object]) -> tuple[datetime, str]:
+        scheduled = parse_plan_datetime(clean_text(step.get("scheduled_for"))) or datetime.max
+        return (scheduled, str(step.get("id")))
+
+    guidance_by_step_id: dict[str, dict[str, bool]] = {}
+    for step in sorted(plan_steps, key=sort_key):
+        step_id = str(step.get("id"))
+        step_type = clean_text(step.get("type"))
+        if not is_collexis_sender(step.get("sender")) or step_type not in INTRODUCTORY_STEP_TYPES:
+            continue
+
+        guidance_by_step_id[step_id] = {
+            "is_first_collexis_contact": not seen_overall,
+            "is_first_collexis_contact_for_type": not seen_by_type[step_type],
+        }
+        seen_overall = True
+        seen_by_type[step_type] = True
+
+    return guidance_by_step_id
+
+
+def introductory_guidance_text(
+    *,
+    phase: str,
+    is_first_collexis_contact: bool,
+    is_first_collexis_contact_for_type: bool,
+) -> str | None:
+    if not is_first_collexis_contact and not is_first_collexis_contact_for_type:
+        return None
+
+    if phase == PRE_HANDOVER_PHASE:
+        return (
+            "Open in a professional collections tone. Formally identify Collexis, explain that Collexis has "
+            "been instructed to collect the outstanding balance on behalf of the client business, and say we "
+            "would prefer to resolve the matter professionally and amicably. Avoid casual phrasing such as "
+            "'Collexis here' or overly friendly language."
+        )
+
+    return (
+        "Open in a professional collections tone. Formally identify Collexis, explain that Collexis is "
+        "handling the account for recovery, and say we would prefer to resolve the matter professionally "
+        "and amicably before things escalate. Avoid casual phrasing such as 'Collexis here' or overly "
+        "friendly language."
+    )
+
+
 def build_drafting_payload(
     *,
     job_snapshot: JobSnapshot,
@@ -102,6 +181,10 @@ def build_drafting_payload(
     now_local: datetime,
 ) -> dict[str, object]:
     steps_by_id = {str(step["id"]): step for step in plan_steps}
+    introductory_guidance = build_introductory_guidance(
+        timeline_items=timeline_items,
+        plan_steps=plan_steps,
+    )
     planned_handover_at = resolve_planned_handover_at(job_snapshot, now_local)
     phase = phase_for(now_local, planned_handover_at)
     balance = outstanding_balance(job_snapshot)
@@ -187,6 +270,13 @@ def build_drafting_payload(
                 "type": str(step.get("type")),
                 "headline": clean_text(step.get("headline")),
                 "scheduled_for": clean_text(step.get("scheduled_for")),
+                "is_first_collexis_contact": introductory_guidance.get(str(step.get("id")), {}).get("is_first_collexis_contact", False),
+                "is_first_collexis_contact_for_type": introductory_guidance.get(str(step.get("id")), {}).get("is_first_collexis_contact_for_type", False),
+                "introductory_guidance": introductory_guidance_text(
+                    phase=phase,
+                    is_first_collexis_contact=introductory_guidance.get(str(step.get("id")), {}).get("is_first_collexis_contact", False),
+                    is_first_collexis_contact_for_type=introductory_guidance.get(str(step.get("id")), {}).get("is_first_collexis_contact_for_type", False),
+                ),
             }
             for step in target_steps
         ],

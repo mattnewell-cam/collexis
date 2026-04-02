@@ -201,7 +201,7 @@ export default function JobDetailsForm({ job }: { job: Job }) {
           throw new Error('Could not save job details.');
         }
 
-        router.push(`/console/jobs/${draft.id}/communications?notice=timeline-review`);
+        router.push(`/console/jobs/${draft.id}/communications`);
         router.refresh();
       }, {
         jobId: draft.id,
