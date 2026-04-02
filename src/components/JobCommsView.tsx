@@ -558,7 +558,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                       <div className="absolute inset-y-0 left-1/2 w-px -translate-x-px bg-gray-200" />
                     </div>
                     <div className="min-w-0 flex-1 pl-3">
-                      <div className="flex flex-wrap items-end justify-between gap-4">
+                      <div className="flex flex-wrap items-start gap-4">
                         <div>
                           <p className="text-sm font-semibold text-gray-900">Outreach plan</p>
                           <p className="mt-0.5 text-sm text-gray-500">
@@ -567,9 +567,9 @@ export default function JobCommsView({ job }: { job: Job }) {
                               : 'Review the timeline, then generate the next-step plan.'}
                           </p>
                         </div>
-                        <div className="flex shrink-0 items-end gap-3">
-                          <label className="space-y-1">
-                            <span className="block text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
+                        <div className="ml-auto flex shrink-0 items-center gap-3">
+                          <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+                            <span className="text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
                               Days Before Handover
                             </span>
                             <input
@@ -586,7 +586,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                                 }
                               }}
                               disabled={planGenerating || savingHandoverDays}
-                              className="w-24 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60"
+                              className="w-20 rounded-lg border border-gray-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60 [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation_Mono','Courier_New',monospace]"
                             />
                           </label>
                           <button
@@ -605,20 +605,15 @@ export default function JobCommsView({ job }: { job: Job }) {
                         </div>
                       </div>
                       {!hasPhoneContact ? (
-                        <div className="mt-3 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
-                          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                        <div className="mt-3 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
                             <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
                               <path d="M12 9v4" />
                               <path d="M12 17h.01" />
                               <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
                             </svg>
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-amber-900">No phone number on this job</p>
-                            <p className="mt-1 text-sm leading-6 text-amber-800">
-                              Add one before generating a plan so calls, SMS, and WhatsApp can be included. Collections are more likely to succeed when phone contact is available.
-                            </p>
-                          </div>
+                          <p className="text-sm font-semibold text-amber-900">No phone number added.</p>
                         </div>
                       ) : null}
                     </div>
