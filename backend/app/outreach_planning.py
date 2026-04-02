@@ -553,6 +553,20 @@ def normalize_model_steps(
     return normalized
 
 
+def filter_steps_for_available_channels(
+    steps: list[dict[str, object]],
+    *,
+    job_snapshot: JobSnapshot,
+) -> list[dict[str, object]]:
+    unavailable_step_types: set[OutreachPlanStepType] = set()
+    if not job_snapshot.phones:
+        unavailable_step_types.update({"call", "sms", "whatsapp"})
+    if not job_snapshot.emails:
+        unavailable_step_types.add("email")
+
+    return [step for step in steps if step["type"] not in unavailable_step_types]
+
+
 def find_matching_model_step(
     steps: list[dict[str, object]],
     step_type: OutreachPlanStepType,
@@ -745,6 +759,7 @@ def generate_outreach_plan(
         default_sender=default_sender,
         prefers_morning=prefers_morning,
     )
+    steps = filter_steps_for_available_channels(steps, job_snapshot=job_snapshot)
     if phase == PRE_HANDOVER_PHASE:
         steps = [
             step for step in steps

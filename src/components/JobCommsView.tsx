@@ -101,6 +101,7 @@ export default function JobCommsView({ job }: { job: Job }) {
 
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
   const hasGeneratedPlan = postNowSteps.length > 0;
+  const hasPhoneContact = jobState.phones.some(phone => phone.trim().length > 0);
 
   useEffect(() => {
     setJobState(job);
@@ -541,6 +542,11 @@ export default function JobCommsView({ job }: { job: Job }) {
                             ? 'Regenerate to replace the saved future plan for this job.'
                             : 'Review the timeline, then generate the next-step plan.'}
                         </p>
+                        {!hasPhoneContact ? (
+                          <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            Add a phone number before generating a plan. Collections are more likely to succeed when calls, SMS, and WhatsApp are available.
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex shrink-0 items-end gap-3">
                         <label className="space-y-1">

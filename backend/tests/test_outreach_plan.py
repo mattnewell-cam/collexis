@@ -452,9 +452,48 @@ def test_generate_outreach_plan_keeps_pre_handover_steps_before_boundary() -> No
     assert all(step["scheduled_for"] < handover_at for step in plan)
 
 
-def test_generate_outreach_plan_skips_calls_without_phone() -> None:
+def test_generate_outreach_plan_skips_phone_channels_without_phone() -> None:
     plan = generate_outreach_plan(
         job_snapshot=build_job_snapshot(phones=[]),
+        timeline_items=[],
+        documents=[],
+        settings=build_settings(Path.cwd()),
+        now=datetime.fromisoformat("2026-03-30T08:00:00+01:00"),
+        drafter=lambda **_kwargs: build_draft(
+            OutreachPlanDraftStep(
+                type="call",
+                sender="you",
+                headline="Call reminder",
+                scheduled_for="2026-03-31T09:30:00+01:00",
+            ),
+            OutreachPlanDraftStep(
+                type="sms",
+                sender="you",
+                headline="SMS reminder",
+                scheduled_for="2026-03-31T10:15:00+01:00",
+            ),
+            OutreachPlanDraftStep(
+                type="whatsapp",
+                sender="you",
+                headline="WhatsApp reminder",
+                scheduled_for="2026-03-31T10:45:00+01:00",
+            ),
+            OutreachPlanDraftStep(
+                type="email",
+                sender="you",
+                headline="Email reminder",
+                scheduled_for="2026-03-31T11:00:00+01:00",
+            )
+        ),
+    )
+
+    assert any(step["type"] == "email" for step in plan)
+    assert all(step["type"] not in {"call", "sms", "whatsapp"} for step in plan)
+
+
+def test_generate_outreach_plan_skips_email_without_email_address() -> None:
+    plan = generate_outreach_plan(
+        job_snapshot=build_job_snapshot(emails=[]),
         timeline_items=[],
         documents=[],
         settings=build_settings(Path.cwd()),
@@ -465,11 +504,18 @@ def test_generate_outreach_plan_skips_calls_without_phone() -> None:
                 sender="you",
                 headline="Email reminder",
                 scheduled_for="2026-03-31T11:00:00+01:00",
-            )
+            ),
+            OutreachPlanDraftStep(
+                type="sms",
+                sender="you",
+                headline="SMS reminder",
+                scheduled_for="2026-03-31T10:15:00+01:00",
+            ),
         ),
     )
 
-    assert all(step["type"] != "call" for step in plan)
+    assert any(step["type"] == "sms" for step in plan)
+    assert all(step["type"] != "email" for step in plan)
 
 
 def test_generate_outreach_plan_prefers_sms_when_email_missing() -> None:

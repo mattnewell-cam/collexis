@@ -138,10 +138,20 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   const [uploading, setUploading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [viewerDocument, setViewerDocument] = useState<EditableDocumentRecord | null>(null);
+  const [viewerImageStatus, setViewerImageStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
 
   useEffect(() => {
     latestDocuments.current = documents;
   }, [documents]);
+
+  useEffect(() => {
+    if (!viewerDocument) {
+      setViewerImageStatus('idle');
+      return;
+    }
+
+    setViewerImageStatus(isImageDocument(viewerDocument.mimeType) ? 'loading' : 'ready');
+  }, [viewerDocument]);
 
   useEffect(() => {
     if (!viewerDocument) return;
@@ -165,6 +175,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     () => documents.some(doc => doc.status === 'processing'),
     [documents],
   );
+  const viewerIsImage = viewerDocument ? isImageDocument(viewerDocument.mimeType) : false;
 
   const fetchDocuments = useCallback(async (showLoading: boolean) => {
     if (!jobId) return;
@@ -527,12 +538,28 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
             </div>
 
             <div className="flex-1 overflow-auto bg-gray-950/95 p-4">
-              {isImageDocument(viewerDocument.mimeType) ? (
-                <img
-                  src={documentFileUrl(viewerDocument.id)}
-                  alt={viewerDocument.originalFilename}
-                  className="mx-auto max-h-full max-w-full rounded-lg object-contain"
-                />
+              {viewerIsImage ? (
+                <div className="flex min-h-full items-center justify-center">
+                  <div className="relative flex min-h-[240px] w-full items-center justify-center rounded-2xl bg-white px-4 py-5 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.75)]">
+                    {viewerImageStatus === 'loading' ? (
+                      <p className="text-sm font-medium text-gray-500">Loading preview...</p>
+                    ) : null}
+                    {viewerImageStatus === 'error' ? (
+                      <p className="max-w-sm text-center text-sm text-gray-500">
+                        Could not load this image preview. Close the viewer and try again.
+                      </p>
+                    ) : null}
+                    <img
+                      src={documentFileUrl(viewerDocument.id)}
+                      alt={viewerDocument.originalFilename}
+                      onLoad={() => setViewerImageStatus('ready')}
+                      onError={() => setViewerImageStatus('error')}
+                      className={`max-h-[calc(88vh-10rem)] max-w-full rounded-xl object-contain transition-opacity ${
+                        viewerImageStatus === 'ready' ? 'opacity-100' : 'opacity-0'
+                      }`}
+                    />
+                  </div>
+                </div>
               ) : (
                 <iframe
                   title={viewerDocument.originalFilename}
