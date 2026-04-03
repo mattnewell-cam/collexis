@@ -299,10 +299,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: 'Enter your email address.' };
     }
 
-    const redirectTo =
+    const origin =
       typeof window !== 'undefined'
-        ? `${window.location.origin}/reset-password`
-        : `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/reset-password`;
+        ? window.location.origin
+        : process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+    const redirectTo = `${origin}/auth/callback?next=/reset-password`;
 
     const { error } = await runClientAction('auth.request_password_reset', async () =>
       supabase.auth.resetPasswordForEmail(email, { redirectTo }), {
