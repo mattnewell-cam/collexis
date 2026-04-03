@@ -42,13 +42,24 @@ interface PendingUndoDelete {
 }
 
 type PlanConfirmState =
-  | 'generate'
-  | 'regenerate'
-  | 'generate-missing-phone'
-  | 'regenerate-missing-phone'
+  | {
+      intent: 'generate' | 'regenerate' | 'revise';
+      missingPhone: boolean;
+    }
   | null;
 
-const outreachPlannerGuidanceLabel = 'Outreach planner tone guidance:';
+const outreachPlannerSectionLabels = {
+  toneGuidance: 'Outreach planner tone guidance:',
+  changeRequests: 'Outreach plan change requests:',
+} as const;
+const outreachPlannerSectionOrder = ['toneGuidance', 'changeRequests'] as const;
+
+type OutreachPlannerSectionKey = typeof outreachPlannerSectionOrder[number];
+
+interface OutreachPlannerSections {
+  toneGuidance: string;
+  changeRequests: string;
+}
 
 function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
@@ -60,23 +71,58 @@ function sanitizeHandoverDays(value: string, fallback = defaultHandoverDays) {
   return Math.max(0, parsed);
 }
 
-function extractOutreachPlannerGuidance(contextInstructions: string) {
-  const markerIndex = contextInstructions.indexOf(outreachPlannerGuidanceLabel);
-  if (markerIndex === -1) return '';
-  return contextInstructions.slice(markerIndex + outreachPlannerGuidanceLabel.length).trim();
+function extractOutreachPlannerSections(contextInstructions: string): {
+  preservedInstructions: string;
+  sections: OutreachPlannerSections;
+} {
+  const sections: OutreachPlannerSections = {
+    toneGuidance: '',
+    changeRequests: '',
+  };
+
+  const markers = outreachPlannerSectionOrder
+    .map(key => ({
+      key,
+      label: outreachPlannerSectionLabels[key],
+      index: contextInstructions.indexOf(outreachPlannerSectionLabels[key]),
+    }))
+    .filter(marker => marker.index !== -1)
+    .sort((left, right) => left.index - right.index);
+
+  if (markers.length === 0) {
+    return {
+      preservedInstructions: contextInstructions.trim(),
+      sections,
+    };
+  }
+
+  markers.forEach((marker, index) => {
+    const nextMarkerIndex = markers[index + 1]?.index ?? contextInstructions.length;
+    sections[marker.key] = contextInstructions
+      .slice(marker.index + marker.label.length, nextMarkerIndex)
+      .trim();
+  });
+
+  return {
+    preservedInstructions: contextInstructions.slice(0, markers[0].index).trim(),
+    sections,
+  };
 }
 
-function mergeOutreachPlannerGuidance(contextInstructions: string, plannerGuidance: string) {
-  const markerIndex = contextInstructions.indexOf(outreachPlannerGuidanceLabel);
-  const preservedInstructions = (markerIndex === -1
-    ? contextInstructions
-    : contextInstructions.slice(0, markerIndex)
-  ).trim();
-  const nextPlannerGuidance = plannerGuidance.trim();
+function mergeOutreachPlannerSections(contextInstructions: string, nextSections: OutreachPlannerSections) {
+  const { preservedInstructions } = extractOutreachPlannerSections(contextInstructions);
+  const serializedPlannerSections = outreachPlannerSectionOrder
+    .map((key: OutreachPlannerSectionKey) => {
+      const value = nextSections[key].trim();
+      if (!value) return '';
+      return `${outreachPlannerSectionLabels[key]}\n${value}`;
+    })
+    .filter(Boolean)
+    .join('\n\n');
 
   return [
     preservedInstructions,
-    nextPlannerGuidance ? `${outreachPlannerGuidanceLabel}\n${nextPlannerGuidance}` : '',
+    serializedPlannerSections,
   ].filter(Boolean).join('\n\n');
 }
 
@@ -109,6 +155,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const initialPlannerSections = extractOutreachPlannerSections(job.contextInstructions).sections;
   const [jobState, setJobState] = useState<Job>(job);
   const [comms, setComms] = useState<Communication[]>([]);
   const [loading, setLoading] = useState(true);
@@ -125,22 +172,25 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null);
   const [showTimelineNotice, setShowTimelineNotice] = useState(searchParams.get('notice') === 'timeline-review');
   const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
-  const [planToneInput, setPlanToneInput] = useState(extractOutreachPlannerGuidance(job.contextInstructions));
+  const [planToneInput, setPlanToneInput] = useState(initialPlannerSections.toneGuidance);
+  const [planChangeRequestsInput, setPlanChangeRequestsInput] = useState(initialPlannerSections.changeRequests);
   const deleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobIdRef = useRef(job.id);
 
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
   const hasGeneratedPlan = postNowSteps.length > 0;
   const hasPhoneContact = jobState.phones.some(phone => phone.trim().length > 0);
-  const planConfirmNeedsPhoneWarning =
-    planConfirmState === 'generate-missing-phone' || planConfirmState === 'regenerate-missing-phone';
-  const planConfirmWillReplace =
-    planConfirmState === 'regenerate' || planConfirmState === 'regenerate-missing-phone';
+  const hasPlannerNoteInputs = Boolean(planToneInput.trim() || planChangeRequestsInput.trim());
+  const planConfirmNeedsPhoneWarning = planConfirmState?.missingPhone ?? false;
+  const planConfirmWillReplace = planConfirmState?.intent === 'regenerate' || planConfirmState?.intent === 'revise';
+  const planConfirmIsRevision = planConfirmState?.intent === 'revise';
 
   useEffect(() => {
+    const plannerSections = extractOutreachPlannerSections(job.contextInstructions).sections;
     setJobState(job);
     setHandoverDaysInput(String(job.handoverDays ?? defaultHandoverDays));
-    setPlanToneInput(extractOutreachPlannerGuidance(job.contextInstructions));
+    setPlanToneInput(plannerSections.toneGuidance);
+    setPlanChangeRequestsInput(plannerSections.changeRequests);
   }, [job]);
 
   useEffect(() => {
@@ -392,6 +442,7 @@ export default function JobCommsView({ job }: { job: Job }) {
   };
 
   const handleGeneratePlan = useCallback(async () => {
+    const planIntent = planConfirmState?.intent ?? (hasGeneratedPlan ? 'regenerate' : 'generate');
     setPlanConfirmState(null);
     setPlanGenerating(true);
     try {
@@ -404,7 +455,10 @@ export default function JobCommsView({ job }: { job: Job }) {
           patch.handoverDays = normalizedDays;
         }
 
-        const nextContextInstructions = mergeOutreachPlannerGuidance(jobState.contextInstructions, planToneInput);
+        const nextContextInstructions = mergeOutreachPlannerSections(jobState.contextInstructions, {
+          toneGuidance: planToneInput,
+          changeRequests: planChangeRequestsInput,
+        });
         if (nextContextInstructions !== jobState.contextInstructions) {
           patch.contextInstructions = nextContextInstructions;
         }
@@ -429,6 +483,9 @@ export default function JobCommsView({ job }: { job: Job }) {
       }, {
         jobId: jobState.id,
         hadExistingPlan: hasGeneratedPlan,
+        intent: planIntent,
+        hasToneGuidance: Boolean(planToneInput.trim()),
+        hasChangeRequests: Boolean(planChangeRequestsInput.trim()),
       });
     } catch (error) {
       setPageError(errorMessage(error, 'Could not generate outreach plan.'));
@@ -436,16 +493,15 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planToneInput, refreshPlanDrafts]);
+  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planChangeRequestsInput, planConfirmState, planToneInput, refreshPlanDrafts]);
 
-  const requestPlanGeneration = useCallback(() => {
+  const requestPlanGeneration = useCallback((intent: 'generate' | 'regenerate' | 'revise') => {
     if (planGenerating) return;
-    if (!hasPhoneContact) {
-      setPlanConfirmState(hasGeneratedPlan ? 'regenerate-missing-phone' : 'generate-missing-phone');
-      return;
-    }
-    setPlanConfirmState(hasGeneratedPlan ? 'regenerate' : 'generate');
-  }, [hasGeneratedPlan, hasPhoneContact, planGenerating]);
+    setPlanConfirmState({
+      intent,
+      missingPhone: !hasPhoneContact,
+    });
+  }, [hasPhoneContact, planGenerating]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -584,16 +640,16 @@ export default function JobCommsView({ job }: { job: Job }) {
                       <div className="absolute inset-y-0 left-1/2 w-px -translate-x-px bg-gray-200" />
                     </div>
                     <div className="min-w-0 flex-1 pl-3">
-                      <div className="flex flex-wrap items-start gap-4">
+                      <div className="space-y-4">
                         <div>
                           <p className="text-sm font-semibold text-gray-900">Outreach plan</p>
                           <p className="mt-0.5 text-sm text-gray-500">
                             {hasGeneratedPlan
-                              ? 'Regenerate to replace the saved future plan for this job.'
+                              ? 'Regenerate to replace the saved future plan, or suggest targeted changes first.'
                               : 'Review the timeline, then generate the next-step plan.'}
                           </p>
                         </div>
-                        <div className="ml-auto flex shrink-0 items-center gap-3">
+                        <div className="flex flex-wrap items-center justify-end gap-3">
                           <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
                             <span className="text-xs font-medium uppercase tracking-[0.16em] text-gray-400">
                               Days Before Handover
@@ -615,9 +671,19 @@ export default function JobCommsView({ job }: { job: Job }) {
                               className="w-20 rounded-lg border border-gray-200 bg-slate-50 px-3 py-1.5 text-sm font-semibold text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa] disabled:cursor-not-allowed disabled:opacity-60 [font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation_Mono','Courier_New',monospace]"
                             />
                           </label>
+                          {hasGeneratedPlan ? (
+                            <button
+                              type="button"
+                              onClick={() => requestPlanGeneration('revise')}
+                              disabled={planGenerating || savingHandoverDays}
+                              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              Suggest changes
+                            </button>
+                          ) : null}
                           <button
                             type="button"
-                            onClick={requestPlanGeneration}
+                            onClick={() => requestPlanGeneration(hasGeneratedPlan ? 'regenerate' : 'generate')}
                             disabled={planGenerating || savingHandoverDays}
                             className={`shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white ${(planGenerating || savingHandoverDays) ? 'cursor-wait opacity-70' : 'transition-opacity hover:opacity-90'}`}
                             style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
@@ -626,10 +692,19 @@ export default function JobCommsView({ job }: { job: Job }) {
                               ? 'Generating...'
                               : hasGeneratedPlan
                                 ? 'Regenerate plan'
-                                : 'Generate Plan'}
+                              : 'Generate Plan'}
                           </button>
                         </div>
                       </div>
+                      {hasGeneratedPlan && hasPlannerNoteInputs ? (
+                        <p className="mt-3 text-sm text-gray-500">
+                          {planChangeRequestsInput.trim() && planToneInput.trim()
+                            ? 'Saved planner notes and requested changes will be reused when you regenerate.'
+                            : planChangeRequestsInput.trim()
+                              ? 'Saved requested changes will be reused when you regenerate.'
+                              : 'Saved tone/context guidance will be reused when you regenerate.'}
+                        </p>
+                      ) : null}
                       {!hasPhoneContact ? (
                         <div className="mt-3 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
@@ -747,13 +822,36 @@ export default function JobCommsView({ job }: { job: Job }) {
               </svg>
             </div>
             <h2 id="regenerate-plan-title" className="mt-4 text-lg font-semibold text-gray-900">
-              {planConfirmWillReplace ? 'Regenerate outreach plan?' : 'Generate outreach plan?'}
+              {planConfirmIsRevision
+                ? 'Suggest changes to this plan?'
+                : planConfirmWillReplace ? 'Regenerate outreach plan?' : 'Generate outreach plan?'}
             </h2>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              {planConfirmWillReplace
-                ? 'Regenerating the outreach plan will replace the current future steps for this job.'
-                : 'Generate the next-step outreach plan for this job.'}
+              {planConfirmIsRevision
+                ? 'Tell Collexis what to change, and the saved future steps will be regenerated around that steer.'
+                : planConfirmWillReplace
+                  ? 'Regenerating the outreach plan will replace the current future steps for this job.'
+                  : 'Generate the next-step outreach plan for this job.'}
             </p>
+            {hasGeneratedPlan ? (
+              <div className="mt-4">
+                <label htmlFor="plan-change-requests-input" className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
+                  What Should Change?
+                </label>
+                <textarea
+                  id="plan-change-requests-input"
+                  value={planChangeRequestsInput}
+                  onChange={event => setPlanChangeRequestsInput(event.target.value)}
+                  rows={4}
+                  autoFocus={planConfirmIsRevision}
+                  placeholder="Optional. For example: bring the handover forward, lean harder on WhatsApp, or soften the early outreach."
+                  className="mt-2 w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa]"
+                />
+                <p className="mt-2 text-sm leading-6 text-gray-500">
+                  Saved here so future regenerations can keep following the same steer until you clear it.
+                </p>
+              </div>
+            ) : null}
             <div className="mt-4">
               <label htmlFor="plan-tone-input" className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
                 Tone / Extra Context
@@ -763,6 +861,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                 value={planToneInput}
                 onChange={event => setPlanToneInput(event.target.value)}
                 rows={4}
+                autoFocus={!hasGeneratedPlan}
                 placeholder="Optional. Tell Collexis how formal or firm to be, or add useful context about the debtor relationship."
                 className="mt-2 w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-gray-700 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa]"
               />
@@ -793,8 +892,12 @@ export default function JobCommsView({ job }: { job: Job }) {
                 style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
               >
                 {planConfirmNeedsPhoneWarning
-                  ? planConfirmWillReplace ? 'Regenerate anyway' : 'Generate anyway'
-                  : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
+                  ? planConfirmIsRevision
+                    ? 'Regenerate with changes anyway'
+                    : planConfirmWillReplace ? 'Regenerate anyway' : 'Generate anyway'
+                  : planConfirmIsRevision
+                    ? 'Regenerate with changes'
+                    : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
               </button>
             </div>
           </div>

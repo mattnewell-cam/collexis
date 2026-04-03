@@ -4,7 +4,6 @@
 2. GPT processes into details and a timeline. User reviews, adds any other details, instructions, communications.
 3. User sets days until full Collexis handover, hits generate plan. 
 4. 5.4-thinking creates the basic comms skeleton, 5.4-mini fills in the actual emails/msgs/voicemails to send. 
-   - TODO: user should be able to suggest changes
    - TODO: add skip-tracing item partway through
 5. Communications go out. 
    - TODO: If at any point the debtor responds positively, reassess and potentially end communications / ask the user
