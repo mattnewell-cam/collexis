@@ -13,6 +13,7 @@ import {
   type LogSource,
   type TraceContext,
 } from './shared';
+import { persistLogEntry } from './persistence';
 
 export interface RequestLogger {
   route: string;
@@ -38,6 +39,7 @@ function consoleMethod(level: LogLevel) {
 
 function writeServerLog(level: LogLevel, entry: LogEntry) {
   consoleMethod(level)(JSON.stringify(entry));
+  void persistLogEntry(entry);
 }
 
 export function logServerEvent(

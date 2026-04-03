@@ -105,8 +105,12 @@ def create_initial_outreach_plan_drafts(
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
-    configure_json_logging(os.getenv("COLLEXIS_LOG_LEVEL", "INFO"))
     app_settings = settings or Settings.from_env()
+    configure_json_logging(
+        os.getenv("COLLEXIS_LOG_LEVEL", "INFO"),
+        supabase_url=app_settings.supabase_url,
+        supabase_service_role_key=app_settings.supabase_service_role_key,
+    )
     init_db(app_settings)
 
     @asynccontextmanager

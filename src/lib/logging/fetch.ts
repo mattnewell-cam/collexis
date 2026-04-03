@@ -61,7 +61,7 @@ function writeFetchLog(
       ...context,
       requestId: trace.requestId,
       actionId: trace.actionId,
-    });
+    }, { sendToServer: true });
     return;
   }
 
@@ -113,4 +113,3 @@ export async function loggedFetch(
     throw error;
   }
 }
-

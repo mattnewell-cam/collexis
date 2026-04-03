@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
+
+from .log_persistence import SupabaseLogHandler
 
 
 LOG_HEADER_REQUEST_ID = "x-request-id"
@@ -105,15 +108,32 @@ class JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=True)
 
 
-def configure_json_logging(level_name: str = "INFO") -> None:
+def configure_json_logging(
+    level_name: str = "INFO",
+    *,
+    supabase_url: str | None = None,
+    supabase_service_role_key: str | None = None,
+) -> None:
     root_logger = logging.getLogger()
     if getattr(root_logger, "_collexis_logging_configured", False):
         return
 
-    handler = logging.StreamHandler()
-    handler.setFormatter(JsonLogFormatter())
-    root_logger.handlers = [handler]
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(JsonLogFormatter())
+
+    handlers: list[logging.Handler] = [stream_handler]
+    if supabase_url and supabase_service_role_key and "PYTEST_CURRENT_TEST" not in os.environ:
+        handlers.append(
+            SupabaseLogHandler(
+                supabase_url=supabase_url,
+                service_role_key=supabase_service_role_key,
+            )
+        )
+
+    root_logger.handlers = handlers
     root_logger.setLevel(getattr(logging, level_name.upper(), logging.INFO))
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     root_logger._collexis_logging_configured = True  # type: ignore[attr-defined]
 
 
@@ -138,4 +158,3 @@ def log_event(
             "context": sanitize_for_logs(context),
         },
     )
-

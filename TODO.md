@@ -2,8 +2,6 @@
 
 ## Prototype
 
-- Get render able to build the site again. 
-- Add some decent fucking logging
 - Get the password reset flow working
 - Check if localhost and collexis.uk versions are now unified data wise.
 - Get automated emailing working
@@ -14,7 +12,8 @@
 - Add ability to update plans based on debtor response and respond
 	- Certain responses like refusals should instantly trigger handover + legal
 - Add actual calling interaction. Voxtral?
-- Explore an AI-assisted collector guidance / tone helper in the generate-plan flow
+- Explore an AI-assisted collector guidance / tone helper in the generate-plan flow. 
+  - Conversationally extract context, how long they're willing to wait, how they want tone to sound. 
 
 ### Where we're at
 - Telnyx info under review so SMS not yet working

@@ -103,15 +103,22 @@ export default function Timeline({
   today.setHours(0, 0, 0, 0);
   const handoverDate = plannedHandoverAt ? parseCommunicationDate(plannedHandoverAt) : null;
   const lastComm = sorted.at(-1);
+  const lastCommDate = lastComm ? parseCommunicationDate(lastComm.date) : null;
   const daysFromLastActionToNow = lastComm
-    && parseCommunicationDate(lastComm.date)
+    && lastCommDate
     ? Math.max(
         0,
         Math.round(
-          (today.getTime() - parseCommunicationDate(lastComm.date)!.getTime()) / 86400000,
+          (today.getTime() - lastCommDate.getTime()) / 86400000,
         ),
       )
     : 0;
+  const showTrailingHandoverDivider = Boolean(
+    handoverDate
+    && lastCommDate
+    && lastCommDate.getTime() < handoverDate.getTime()
+    && handoverDate.getTime() <= today.getTime(),
+  );
 
   return (
     <div className="flex-1 min-h-[300px]">
@@ -169,6 +176,7 @@ export default function Timeline({
             );
           })}
 
+          {showTrailingHandoverDivider ? <HandoverDivider label="Handover" /> : null}
           <Connector days={daysFromLastActionToNow} alwaysShowLabel />
           <NowDivider />
         </>

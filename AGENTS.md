@@ -38,6 +38,8 @@ When work in a worktree is complete, merge it cleanly into main: switch to main,
 
 Clean up terminal processes you started for the task when they are no longer needed, and always do a final cleanup pass before ending the turn. Do not leave behind extra terminal windows, dev servers, watchers, or background jobs unless the user explicitly asked for a process to keep running.
 
+Keep the repo root clean. Do not leave logs, screenshots, or other temp artifacts in `collexis/`; use `logs/` or `tmp/` when needed and delete them when you are done.
+
 ## UI Content
 
 Do not add explanatory UI copy that is redundant with the control itself or otherwise irrelevant to the user just because the prompt mentioned it. Prefer concise interfaces over instructional filler. For example, avoid helper text like "This filter searches the address, name and description fields" sitting next to a filter unless that information is genuinely necessary for the user to succeed.
@@ -70,6 +72,21 @@ src/
     communication.ts
     postNowPlan.ts
 ```
+
+## Memory
+
+Persistent project memory lives in `.claude/memory/`. Read `.claude/memory/MEMORY.md` for the index at the start of any non-trivial task. Each index entry points to a file with the full detail.
+
+**When to read:** at conversation start when context seems relevant, or when the user references prior decisions/incidents.
+
+**When to write:** when you learn something non-obvious *or* take a meaningful action — infrastructure created/deleted, config changed, integrations added, architectural decisions made, user preferences observed. Do not save things derivable from the code or git history.
+
+**How to write:**
+1. Create a file in `.claude/memory/` with a short descriptive name (e.g. `render_services.md`).
+2. Add a one-line entry for it in `.claude/memory/MEMORY.md`.
+3. Use frontmatter: `name`, `description`, `type` (`user` | `feedback` | `project` | `reference`), `date` (YYYY-MM-DD), then the content body.
+
+**When to update/delete:** if a memory contradicts current reality, update it (and refresh the `date`) or remove it and sync the index.
 
 ## Small Change Rule
 
