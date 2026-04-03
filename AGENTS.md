@@ -37,6 +37,7 @@ When work in a worktree is complete, merge it cleanly into main: switch to main,
 ## Process Cleanup
 
 Clean up terminal processes you started for the task when they are no longer needed, and always do a final cleanup pass before ending the turn. Do not leave behind extra terminal windows, dev servers, watchers, or background jobs unless the user explicitly asked for a process to keep running.
+If you launched Chrome or a DevTools MCP browser for the task, close the whole browser window or browser context when you are done, not just the active tab.
 
 Keep the repo root clean. Do not leave logs, screenshots, or other temp artifacts in `collexis/`; use `logs/` or `tmp/` when needed and delete them when you are done.
 
