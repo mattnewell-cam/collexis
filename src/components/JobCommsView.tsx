@@ -400,7 +400,7 @@ export default function JobCommsView({ job }: { job: Job }) {
             timelineItemId: comm.id,
             actionId: trace.actionId,
           }, { sendToServer: true });
-          await deleteTimelineItem(comm.id, trace);
+          await deleteTimelineItem(comm, trace);
           setPageError(null);
         } catch (error) {
           setComms(prev => (prev.some(item => item.id === comm.id) ? prev : [...prev, comm]));

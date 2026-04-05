@@ -150,6 +150,7 @@ export default function CommForm({
 
     const result = await runClientAction('communications.send_sms', async trace =>
       sendSms({
+        jobId: job.id,
         to: selectedPhone,
         text: details.trim(),
       }, trace), {

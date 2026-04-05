@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/lib/audit/server';
 import { documentBackendOrigin } from '@/lib/documentBackend';
 import { loggedFetch } from '@/lib/logging/fetch';
 import { withRouteLogging } from '@/lib/logging/server';
@@ -112,6 +113,7 @@ export const POST = withRouteLogging('communications.send_email', async (
 
   const { id } = await params;
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
   const job = await findJobById(id, supabase);
 
   if (!job) {
@@ -164,6 +166,29 @@ export const POST = withRouteLogging('communications.send_email', async (
       ...communication,
       details: `Subject: ${communication.shortDescription.trim()}\n\n${communication.details.trim()}`,
     }, log.trace);
+
+    try {
+      await recordAuditEvent({
+        actorUserId: user?.id ?? null,
+        action: 'communication.sent',
+        jobId: id,
+        entityType: 'communication',
+        entityId: timelineItem.id,
+        metadata: {
+          channel: 'email',
+          category: communication.category,
+          sender: communication.sender ?? null,
+          recipientCount: recipients.length,
+        },
+      });
+    } catch (error) {
+      log.warn('audit_events.write_failed', {
+        action: 'communication.sent',
+        jobId: id,
+        timelineItemId: timelineItem.id,
+        error,
+      });
+    }
 
     return NextResponse.json({
       timelineItem,

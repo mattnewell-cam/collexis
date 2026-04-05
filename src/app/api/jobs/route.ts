@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/lib/audit/server';
 import { createClient } from '@/lib/supabase/server';
 import { createJob } from '@/lib/jobStore';
 import { withRouteLogging } from '@/lib/logging/server';
@@ -34,6 +35,25 @@ export const POST = withRouteLogging('jobs.create', async (request, _context, lo
       documentCount: documents.length,
     });
     const job = await createJob(supabase, user.id, { name, address, documents });
+    try {
+      await recordAuditEvent({
+        actorUserId: user.id,
+        action: 'job.created',
+        jobId: job.id,
+        entityType: 'job',
+        entityId: job.id,
+        metadata: {
+          hasAddress: Boolean(address),
+          documentCount: documents.length,
+        },
+      });
+    } catch (error) {
+      log.warn('audit_events.write_failed', {
+        action: 'job.created',
+        jobId: job.id,
+        error,
+      });
+    }
     return NextResponse.json({ job });
   } catch (error) {
     log.error('jobs.create.failed', {

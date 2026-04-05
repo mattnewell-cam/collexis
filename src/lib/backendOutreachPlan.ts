@@ -121,12 +121,9 @@ export async function ensureOutreachPlanDrafts(job: Job, trace?: TraceContext): 
 }
 
 export async function generateOutreachPlan(job: Job, trace?: TraceContext): Promise<PostNowStep[]> {
-  const response = await loggedFetch(documentBackendPath(`/jobs/${job.id}/outreach-plan/generate`), {
+  const response = await loggedFetch(`/api/jobs/${job.id}/outreach-plan/generate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      job_snapshot: toApiJobSnapshot(job),
-    }),
+    cache: 'no-store',
   }, {
     name: 'outreach_plan.generate',
     context: { jobId: job.id },

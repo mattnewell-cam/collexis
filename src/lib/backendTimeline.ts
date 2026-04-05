@@ -18,6 +18,14 @@ export type ApiTimelineItem = {
   updated_at: string;
 };
 
+export interface DeleteTimelineItemInput {
+  id: string;
+  jobId: string;
+  category: Communication['category'];
+  subtype?: Communication['subtype'];
+  sender?: Communication['sender'];
+}
+
 function ensureResponseOk(response: Response, fallbackMessage: string) {
   if (!response.ok) {
     throw new Error(fallbackMessage);
@@ -106,12 +114,23 @@ export async function linkDocumentToTimelineItem(
   return mapApiTimelineItem(await response.json() as ApiTimelineItem);
 }
 
-export async function deleteTimelineItem(timelineItemId: string, trace?: TraceContext): Promise<void> {
-  const response = await loggedFetch(documentBackendPath(`/timeline-items/${timelineItemId}`), {
+export async function deleteTimelineItem(comm: DeleteTimelineItemInput, trace?: TraceContext): Promise<void> {
+  const response = await loggedFetch(`/api/jobs/${comm.jobId}/timeline-items/${comm.id}`, {
     method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      category: comm.category,
+      subtype: comm.subtype ?? null,
+      sender: comm.sender ?? null,
+    }),
   }, {
     name: 'timeline.delete',
-    context: { timelineItemId },
+    context: {
+      jobId: comm.jobId,
+      timelineItemId: comm.id,
+      category: comm.category,
+      subtype: comm.subtype ?? null,
+    },
     trace,
   });
   ensureResponseOk(response, 'Could not delete timeline item.');

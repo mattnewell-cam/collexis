@@ -6,6 +6,7 @@ export interface SendSmsRequest {
   to: string;
   text: string;
   from?: string;
+  jobId?: string;
 }
 
 export interface SendSmsResponse {
@@ -22,6 +23,7 @@ export async function sendSms(request: SendSmsRequest, trace?: TraceContext): Pr
       ...request,
       to: normalizeUkPhoneForTelnyx(request.to),
       from: request.from ? normalizeUkPhoneForTelnyx(request.from) : undefined,
+      jobId: request.jobId ?? undefined,
     }),
   }, {
     name: 'communications.send_sms',

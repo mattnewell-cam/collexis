@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { recordAuditEvent } from '@/lib/audit/server';
 import { documentBackendOrigin } from '@/lib/documentBackend';
 import { loggedFetch } from '@/lib/logging/fetch';
 import { withRouteLogging } from '@/lib/logging/server';
@@ -26,12 +27,33 @@ export const PATCH = withRouteLogging('jobs.update', async (
 
   try {
     const payload = await request.json();
+    const changedFields = payload && typeof payload === 'object'
+      ? Object.keys(payload as Record<string, unknown>).sort()
+      : [];
     log.info('jobs.update.attempt', {
       jobId: id,
       userId: user.id,
-      changedFields: payload && typeof payload === 'object' ? Object.keys(payload as Record<string, unknown>) : [],
+      changedFields,
     });
     const updatedJob = await updateJob(supabase, id, payload);
+    try {
+      await recordAuditEvent({
+        actorUserId: user.id,
+        action: 'job.updated',
+        jobId: id,
+        entityType: 'job',
+        entityId: id,
+        metadata: {
+          changedFields,
+        },
+      });
+    } catch (error) {
+      log.warn('audit_events.write_failed', {
+        action: 'job.updated',
+        jobId: id,
+        error,
+      });
+    }
     return NextResponse.json({ job: updatedJob });
   } catch (error) {
     log.error('jobs.update.failed', {
@@ -101,6 +123,25 @@ export const DELETE = withRouteLogging('jobs.delete', async (
       error,
     });
     return NextResponse.json({ error: 'Could not delete job.' }, { status: 500 });
+  }
+
+  try {
+    await recordAuditEvent({
+      actorUserId: user.id,
+      action: 'job.deleted',
+      jobId: id,
+      entityType: 'job',
+      entityId: id,
+      metadata: {
+        status: currentJob.status,
+      },
+    });
+  } catch (error) {
+    log.warn('audit_events.write_failed', {
+      action: 'job.deleted',
+      jobId: id,
+      error,
+    });
   }
 
   const backendPayload = await backendResponse.json().catch(() => ({}));
