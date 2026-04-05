@@ -10,7 +10,9 @@ Read the relevant guide in `node_modules/next/dist/docs/` before writing code on
 
 Do not pause for a docs pass on small local UI changes that stay within existing component patterns, Tailwind classes, or isolated presentational JSX unless there is an actual Next-specific uncertainty.
 <!-- END:nextjs-agent-rules -->
-URL: `collexis.uk`
+Default local URL: `http://localhost:3000`
+
+Use the local server for development, testing, and visual verification by default. Do not use or rely on the hosted `collexis.uk` site unless the user explicitly asks for production verification.
 
 ## UI Verification
 
@@ -28,7 +30,7 @@ For a small UI tweak, prefer this loop:
 
 ## Deployment
 
-The production site is `collexis.uk`, deployed automatically from the `main` branch on Render. Every code change must be committed and pushed to `main` to take effect in production. After pushing, Render will build and deploy automatically — no manual trigger needed.
+The production site is `collexis.uk`, deployed automatically from the `main` branch on Render. Commit completed work automatically, but only push to `main` when the user explicitly asks you to. After a push, Render will build and deploy automatically with no manual trigger needed.
 
 ## Worktree Workflow
 
@@ -94,4 +96,3 @@ For small or localized UI changes and bug fixes:
 - make the smallest plausible patch
 - run one relevant verification command and (if UI) one screenshot check
 - your speed matters
-
