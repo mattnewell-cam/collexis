@@ -8,6 +8,7 @@ import re
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
+from time import perf_counter
 from typing import Callable
 
 from openai import OpenAI
@@ -486,11 +487,138 @@ def extract_document_metadata(
     extraction_model = extraction_model_for_profile(processing_profile)
 
     if mime_type == "application/pdf":
+        upload_started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "openai.files.create.started",
+            provider="openai",
+            operation="documents.extract_metadata",
+            model=extraction_model,
+            document_id=document["id"],
+            mime_type=mime_type,
+        )
         with io.BytesIO(file_bytes) as file_handle:
-            uploaded_file = client.files.create(
-                file=(filename, file_handle, mime_type),
-                purpose="user_data",
+            try:
+                uploaded_file = client.files.create(
+                    file=(filename, file_handle, mime_type),
+                    purpose="user_data",
+                )
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "openai.files.create.failed",
+                    provider="openai",
+                    operation="documents.extract_metadata",
+                    model=extraction_model,
+                    document_id=document["id"],
+                    duration_ms=int((perf_counter() - upload_started_at) * 1000),
+                    error=exc,
+                )
+                raise
+        log_event(
+            logger,
+            logging.INFO,
+            "openai.files.create.completed",
+            provider="openai",
+            operation="documents.extract_metadata",
+            model=extraction_model,
+            document_id=document["id"],
+            duration_ms=int((perf_counter() - upload_started_at) * 1000),
+            file_id=uploaded_file.id,
+        )
+        try:
+            parse_started_at = perf_counter()
+            log_event(
+                logger,
+                logging.INFO,
+                "openai.responses.parse.started",
+                provider="openai",
+                operation="documents.extract_metadata",
+                model=extraction_model,
+                document_id=document["id"],
+                mime_type=mime_type,
             )
+            try:
+                response = client.responses.parse(
+                    model=extraction_model,
+                    input=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "input_text", "text": build_extraction_prompt()},
+                                {"type": "input_file", "file_id": uploaded_file.id},
+                            ],
+                        }
+                    ],
+                    text_format=ExtractedDocument,
+                )
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "openai.responses.parse.failed",
+                    provider="openai",
+                    operation="documents.extract_metadata",
+                    model=extraction_model,
+                    document_id=document["id"],
+                    mime_type=mime_type,
+                    duration_ms=int((perf_counter() - parse_started_at) * 1000),
+                    error=exc,
+                )
+                raise
+            log_event(
+                logger,
+                logging.INFO,
+                "openai.responses.parse.completed",
+                provider="openai",
+                operation="documents.extract_metadata",
+                model=extraction_model,
+                document_id=document["id"],
+                mime_type=mime_type,
+                duration_ms=int((perf_counter() - parse_started_at) * 1000),
+            )
+        finally:
+            try:
+                delete_started_at = perf_counter()
+                client.files.delete(uploaded_file.id)
+                log_event(
+                    logger,
+                    logging.INFO,
+                    "openai.files.delete.completed",
+                    provider="openai",
+                    operation="documents.extract_metadata",
+                    model=extraction_model,
+                    document_id=document["id"],
+                    file_id=uploaded_file.id,
+                    duration_ms=int((perf_counter() - delete_started_at) * 1000),
+                )
+            except Exception as exc:
+                log_event(
+                    logger,
+                    logging.WARNING,
+                    "openai.files.delete.failed",
+                    provider="openai",
+                    operation="documents.extract_metadata",
+                    model=extraction_model,
+                    document_id=document["id"],
+                    file_id=uploaded_file.id,
+                    error=exc,
+                )
+                pass
+    else:
+        parse_started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "openai.responses.parse.started",
+            provider="openai",
+            operation="documents.extract_metadata",
+            model=extraction_model,
+            document_id=document["id"],
+            mime_type=mime_type,
+        )
         try:
             response = client.responses.parse(
                 model=extraction_model,
@@ -499,33 +627,39 @@ def extract_document_metadata(
                         "role": "user",
                         "content": [
                             {"type": "input_text", "text": build_extraction_prompt()},
-                            {"type": "input_file", "file_id": uploaded_file.id},
+                            {
+                                "type": "input_image",
+                                "image_url": build_image_data_url(file_bytes, mime_type),
+                            },
                         ],
                     }
                 ],
                 text_format=ExtractedDocument,
             )
-        finally:
-            try:
-                client.files.delete(uploaded_file.id)
-            except Exception:
-                pass
-    else:
-        response = client.responses.parse(
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "openai.responses.parse.failed",
+                provider="openai",
+                operation="documents.extract_metadata",
+                model=extraction_model,
+                document_id=document["id"],
+                mime_type=mime_type,
+                duration_ms=int((perf_counter() - parse_started_at) * 1000),
+                error=exc,
+            )
+            raise
+        log_event(
+            logger,
+            logging.INFO,
+            "openai.responses.parse.completed",
+            provider="openai",
+            operation="documents.extract_metadata",
             model=extraction_model,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": build_extraction_prompt()},
-                        {
-                            "type": "input_image",
-                            "image_url": build_image_data_url(file_bytes, mime_type),
-                        },
-                    ],
-                }
-            ],
-            text_format=ExtractedDocument,
+            document_id=document["id"],
+            mime_type=mime_type,
+            duration_ms=int((perf_counter() - parse_started_at) * 1000),
         )
 
     return response.output_parsed
@@ -575,18 +709,54 @@ def summarize_job_intake(job_id: str, settings: Settings) -> JobIntakeSummary:
     }
 
     client = OpenAI(api_key=settings.openai_api_key)
-    response = client.responses.parse(
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="job_intake.summarize",
         model=JOB_INTAKE_SUMMARY_MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": build_job_intake_summary_prompt()},
-                    {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
-                ],
-            }
-        ],
-        text_format=JobIntakeSummary,
+        job_id=job_id,
+        ready_document_count=len(documents),
+        timeline_item_count=len(timeline_items),
+    )
+    try:
+        response = client.responses.parse(
+            model=JOB_INTAKE_SUMMARY_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": build_job_intake_summary_prompt()},
+                        {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                }
+            ],
+            text_format=JobIntakeSummary,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="job_intake.summarize",
+            model=JOB_INTAKE_SUMMARY_MODEL,
+            job_id=job_id,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="job_intake.summarize",
+        model=JOB_INTAKE_SUMMARY_MODEL,
+        job_id=job_id,
+        duration_ms=int((perf_counter() - started_at) * 1000),
     )
     return normalize_job_intake_summary(response.output_parsed)
 
@@ -630,18 +800,55 @@ def plan_document_timeline(
         "existing_timeline_items": timeline_context,
     }
 
-    response = client.responses.parse(
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="documents.plan_timeline",
         model=TIMELINE_PLANNING_MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": TIMELINE_PLANNING_PROMPT},
-                    {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
-                ],
-            }
-        ],
-        text_format=TimelineDecision,
+        document_id=document["id"],
+        existing_timeline_item_count=len(existing_timeline_items),
+    )
+    try:
+        response = client.responses.parse(
+            model=TIMELINE_PLANNING_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": TIMELINE_PLANNING_PROMPT},
+                        {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                }
+            ],
+            text_format=TimelineDecision,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="documents.plan_timeline",
+            model=TIMELINE_PLANNING_MODEL,
+            document_id=document["id"],
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="documents.plan_timeline",
+        model=TIMELINE_PLANNING_MODEL,
+        document_id=document["id"],
+        duration_ms=int((perf_counter() - started_at) * 1000),
+        action=response.output_parsed.action,
+        existing_timeline_item_id=response.output_parsed.existing_timeline_item_id,
     )
     return response.output_parsed
 

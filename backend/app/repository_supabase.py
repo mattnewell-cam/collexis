@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+import logging
+from time import perf_counter
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
@@ -10,6 +12,10 @@ from uuid import uuid4
 import httpx
 
 from .config import Settings
+from .logging_utils import log_event
+
+
+logger = logging.getLogger(__name__)
 
 
 def utc_now() -> str:
@@ -152,11 +158,47 @@ class SupabaseDocumentRepository:
         self._has_outreach_delivery_state = self._detect_outreach_delivery_state_support()
 
     def _detect_outreach_delivery_state_support(self) -> bool:
-        response = httpx.get(
-            f"{self._rest_base_url}/outreach_plan_steps",
-            params={"select": "delivery_status", "limit": "1"},
-            headers=self._headers,
-            timeout=30.0,
+        target = f"{self._rest_base_url}/outreach_plan_steps"
+        started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "supabase.rest.request.started",
+            table="outreach_plan_steps",
+            method="GET",
+            target=target,
+            operation="repository.detect_outreach_delivery_state",
+        )
+        try:
+            response = httpx.get(
+                target,
+                params={"select": "delivery_status", "limit": "1"},
+                headers=self._headers,
+                timeout=30.0,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "supabase.rest.request.failed",
+                table="outreach_plan_steps",
+                method="GET",
+                target=target,
+                operation="repository.detect_outreach_delivery_state",
+                duration_ms=int((perf_counter() - started_at) * 1000),
+                error=exc,
+            )
+            raise
+        log_event(
+            logger,
+            logging.INFO if response.status_code < 400 else logging.WARNING,
+            "supabase.rest.request.completed",
+            table="outreach_plan_steps",
+            method="GET",
+            target=target,
+            operation="repository.detect_outreach_delivery_state",
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            status=response.status_code,
         )
         if response.status_code < 400:
             return True
@@ -202,13 +244,55 @@ class SupabaseDocumentRepository:
             headers["Prefer"] = "return=representation"
         if object_response:
             headers["Accept"] = "application/vnd.pgrst.object+json"
-        response = httpx.request(
-            method,
-            f"{self._rest_base_url}/{table}",
-            params=params,
-            json=json_body,
-            headers=headers,
-            timeout=60.0,
+        target = f"{self._rest_base_url}/{table}"
+        started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "supabase.rest.request.started",
+            table=table,
+            method=method.upper(),
+            target=target,
+            object_response=object_response,
+            return_representation=return_representation,
+            param_keys=sorted((params or {}).keys()),
+        )
+        try:
+            response = httpx.request(
+                method,
+                target,
+                params=params,
+                json=json_body,
+                headers=headers,
+                timeout=60.0,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "supabase.rest.request.failed",
+                table=table,
+                method=method.upper(),
+                target=target,
+                object_response=object_response,
+                return_representation=return_representation,
+                param_keys=sorted((params or {}).keys()),
+                duration_ms=int((perf_counter() - started_at) * 1000),
+                error=exc,
+            )
+            raise
+        log_event(
+            logger,
+            logging.INFO if response.status_code < 400 else logging.WARNING,
+            "supabase.rest.request.completed",
+            table=table,
+            method=method.upper(),
+            target=target,
+            object_response=object_response,
+            return_representation=return_representation,
+            param_keys=sorted((params or {}).keys()),
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            status=response.status_code,
         )
         if object_response and response.status_code == 406:
             return None
@@ -230,12 +314,47 @@ class SupabaseDocumentRepository:
             headers["Content-Type"] = mime_type
         if method.upper() in {"POST", "PUT"}:
             headers["x-upsert"] = "true"
-        response = httpx.request(
-            method,
-            f"{self._storage_base_url}/object/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}",
-            content=content,
-            headers=headers,
-            timeout=120.0,
+        target = f"{self._storage_base_url}/object/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}"
+        started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "supabase.storage.request.started",
+            method=method.upper(),
+            target=target,
+            storage_path=storage_path,
+            mime_type=mime_type,
+            content_length=len(content) if content is not None else 0,
+        )
+        try:
+            response = httpx.request(
+                method,
+                target,
+                content=content,
+                headers=headers,
+                timeout=120.0,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "supabase.storage.request.failed",
+                method=method.upper(),
+                target=target,
+                storage_path=storage_path,
+                duration_ms=int((perf_counter() - started_at) * 1000),
+                error=exc,
+            )
+            raise
+        log_event(
+            logger,
+            logging.INFO if response.status_code < 400 else logging.WARNING,
+            "supabase.storage.request.completed",
+            method=method.upper(),
+            target=target,
+            storage_path=storage_path,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            status=response.status_code,
         )
         return response
 
@@ -247,10 +366,43 @@ class SupabaseDocumentRepository:
         response.raise_for_status()
 
     def read_file(self, storage_path: str) -> bytes:
-        response = httpx.get(
-            f"{self._storage_base_url}/object/authenticated/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}",
-            headers=self._headers,
-            timeout=120.0,
+        target = f"{self._storage_base_url}/object/authenticated/{self.settings.supabase_documents_bucket}/{quote(storage_path, safe='/')}"
+        started_at = perf_counter()
+        log_event(
+            logger,
+            logging.INFO,
+            "supabase.storage.request.started",
+            method="GET",
+            target=target,
+            storage_path=storage_path,
+        )
+        try:
+            response = httpx.get(
+                target,
+                headers=self._headers,
+                timeout=120.0,
+            )
+        except Exception as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "supabase.storage.request.failed",
+                method="GET",
+                target=target,
+                storage_path=storage_path,
+                duration_ms=int((perf_counter() - started_at) * 1000),
+                error=exc,
+            )
+            raise
+        log_event(
+            logger,
+            logging.INFO if response.status_code < 400 else logging.WARNING,
+            "supabase.storage.request.completed",
+            method="GET",
+            target=target,
+            storage_path=storage_path,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            status=response.status_code,
         )
         if response.status_code == 404:
             raise FileNotFoundError(storage_path)

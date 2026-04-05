@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import json
 import logging
 import os
@@ -27,6 +29,10 @@ SENSITIVE_KEYS = {
     "raw_message",
     "text_content",
 }
+
+_request_id_var: ContextVar[str | None] = ContextVar("collexis_request_id", default=None)
+_action_id_var: ContextVar[str | None] = ContextVar("collexis_action_id", default=None)
+_session_id_var: ContextVar[str | None] = ContextVar("collexis_session_id", default=None)
 
 
 def _mask_email(value: str) -> str:
@@ -137,6 +143,32 @@ def configure_json_logging(
     root_logger._collexis_logging_configured = True  # type: ignore[attr-defined]
 
 
+def current_log_context() -> dict[str, str | None]:
+    return {
+        "request_id": _request_id_var.get(),
+        "action_id": _action_id_var.get(),
+        "session_id": _session_id_var.get(),
+    }
+
+
+@contextmanager
+def bind_log_context(
+    *,
+    request_id: str | None = None,
+    action_id: str | None = None,
+    session_id: str | None = None,
+):
+    request_token = _request_id_var.set(request_id)
+    action_token = _action_id_var.set(action_id)
+    session_token = _session_id_var.set(session_id)
+    try:
+        yield
+    finally:
+        _request_id_var.reset(request_token)
+        _action_id_var.reset(action_token)
+        _session_id_var.reset(session_token)
+
+
 def log_event(
     logger: logging.Logger,
     level: int,
@@ -147,14 +179,18 @@ def log_event(
     session_id: str | None = None,
     **context: Any,
 ) -> None:
+    current_context = current_log_context()
+    resolved_request_id = request_id if request_id is not None else current_context["request_id"]
+    resolved_action_id = action_id if action_id is not None else current_context["action_id"]
+    resolved_session_id = session_id if session_id is not None else current_context["session_id"]
     logger.log(
         level,
         event,
         extra={
             "event": event,
-            "request_id": request_id,
-            "action_id": action_id,
-            "session_id": session_id,
+            "request_id": resolved_request_id,
+            "action_id": resolved_action_id,
+            "session_id": resolved_session_id,
             "context": sanitize_for_logs(context),
         },
     )

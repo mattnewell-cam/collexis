@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections import Counter
 from datetime import date, datetime, time, timedelta, timezone
+from time import perf_counter
 from typing import Callable
 from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -9,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from openai import OpenAI
 
 from .config import Settings
+from .logging_utils import log_event
 from .schemas import IncomingReplyContext, JobSnapshot, OutreachPlanDraft, OutreachPlanStepType
 
 
@@ -53,6 +57,7 @@ INITIATED_KEYWORDS = (
     "legal action initiated",
     "court claim",
 )
+logger = logging.getLogger(__name__)
 
 PRE_HANDOVER_OUTREACH_PLANNING_PROMPT = (
     "Design a debt-recovery outreach plan for this job. Return only the schema. "
@@ -424,33 +429,74 @@ def draft_outreach_plan(
         raise RuntimeError("OPENAI_API_KEY is not configured.")
 
     client = OpenAI(api_key=settings.openai_api_key)
-    response = client.responses.parse(
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="outreach_plan.draft",
         model=OUTREACH_PLANNING_MODEL,
-        reasoning={"effort": OUTREACH_PLANNING_REASONING_EFFORT},
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": PRE_HANDOVER_OUTREACH_PLANNING_PROMPT if phase == PRE_HANDOVER_PHASE else POST_HANDOVER_OUTREACH_PLANNING_PROMPT},
-                    {
-                        "type": "input_text",
-                        "text": json.dumps(
-                            build_generation_payload(
-                                job_snapshot=job_snapshot,
-                                timeline_items=timeline_items,
-                                documents=documents,
-                                incoming_reply_context=incoming_reply_context,
-                                now_local=now_local,
-                                planned_handover_at=planned_handover_at,
-                                phase=phase,
+        reasoning_effort=OUTREACH_PLANNING_REASONING_EFFORT,
+        phase=phase,
+        timeline_item_count=len(timeline_items),
+        ready_document_count=len(documents),
+        has_incoming_reply=incoming_reply_context is not None,
+    )
+    try:
+        response = client.responses.parse(
+            model=OUTREACH_PLANNING_MODEL,
+            reasoning={"effort": OUTREACH_PLANNING_REASONING_EFFORT},
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": PRE_HANDOVER_OUTREACH_PLANNING_PROMPT if phase == PRE_HANDOVER_PHASE else POST_HANDOVER_OUTREACH_PLANNING_PROMPT},
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                build_generation_payload(
+                                    job_snapshot=job_snapshot,
+                                    timeline_items=timeline_items,
+                                    documents=documents,
+                                    incoming_reply_context=incoming_reply_context,
+                                    now_local=now_local,
+                                    planned_handover_at=planned_handover_at,
+                                    phase=phase,
+                                ),
+                                ensure_ascii=True,
                             ),
-                            ensure_ascii=True,
-                        ),
-                    },
-                ],
-            }
-        ],
-        text_format=OutreachPlanDraft,
+                        },
+                    ],
+                }
+            ],
+            text_format=OutreachPlanDraft,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="outreach_plan.draft",
+            model=OUTREACH_PLANNING_MODEL,
+            reasoning_effort=OUTREACH_PLANNING_REASONING_EFFORT,
+            phase=phase,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="outreach_plan.draft",
+        model=OUTREACH_PLANNING_MODEL,
+        reasoning_effort=OUTREACH_PLANNING_REASONING_EFFORT,
+        phase=phase,
+        duration_ms=int((perf_counter() - started_at) * 1000),
+        output_step_count=len(response.output_parsed.steps),
     )
     return response.output_parsed
 
@@ -733,6 +779,15 @@ def generate_outreach_plan(
     now: datetime | None = None,
     drafter: Callable[..., OutreachPlanDraft] | None = None,
 ) -> list[dict[str, object]]:
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.generate.started",
+        job_id=job_snapshot.id,
+        timeline_item_count=len(timeline_items),
+        ready_document_count=len(documents),
+        has_incoming_reply=incoming_reply_context is not None,
+    )
     resolved_now = now or datetime.now(london_timezone_for(datetime.now()))
     if OUTREACH_TIMEZONE is not None:
         resolved_now = resolved_now.astimezone(OUTREACH_TIMEZONE)
@@ -742,6 +797,16 @@ def generate_outreach_plan(
     planned_handover_at = resolve_planned_handover_at(job_snapshot, now_local)
     phase = phase_for(now_local, planned_handover_at)
     legal_schedule = build_legal_schedule(now_local, timeline_items, planned_handover_at=planned_handover_at) if phase == POST_HANDOVER_PHASE else []
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.generate.phase_resolved",
+        job_id=job_snapshot.id,
+        phase=phase,
+        planned_handover_at=isoformat_local(planned_handover_at),
+        legal_step_target_count=len(legal_schedule),
+        prefers_morning=prefers_morning,
+    )
     draft = (drafter or draft_outreach_plan)(
         job_snapshot=job_snapshot,
         timeline_items=timeline_items,
@@ -760,6 +825,15 @@ def generate_outreach_plan(
         prefers_morning=prefers_morning,
     )
     steps = filter_steps_for_available_channels(steps, job_snapshot=job_snapshot)
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.generate.model_steps_normalized",
+        job_id=job_snapshot.id,
+        phase=phase,
+        model_step_count=len(draft.steps),
+        normalized_step_count=len(steps),
+    )
     if phase == PRE_HANDOVER_PHASE:
         steps = [
             step for step in steps
@@ -796,4 +870,15 @@ def generate_outreach_plan(
     normalized = [step for step in normalized if step["scheduled_for"] > now_local]
     if phase == PRE_HANDOVER_PHASE:
         normalized = [step for step in normalized if step["scheduled_for"] < planned_handover_at]
-    return finalize_steps(normalized, job_id=job_snapshot.id)
+    finalized = finalize_steps(normalized, job_id=job_snapshot.id)
+    step_counts = dict(Counter(str(step["type"]) for step in finalized))
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.generate.completed",
+        job_id=job_snapshot.id,
+        phase=phase,
+        final_step_count=len(finalized),
+        step_counts=step_counts,
+    )
+    return finalized

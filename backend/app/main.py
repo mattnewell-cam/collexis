@@ -23,6 +23,7 @@ from .logging_utils import (
     LOG_HEADER_REQUEST_ID,
     LOG_HEADER_SESSION_ID,
     LOG_HEADER_TRACE_ORIGIN,
+    bind_log_context,
     configure_json_logging,
     log_event,
 )
@@ -87,7 +88,7 @@ def create_initial_outreach_plan_drafts(
     ready_documents: list[dict[str, object]],
     settings: Settings,
     draft_ensurer: Callable[..., list[dict[str, object]]],
-) -> None:
+) -> int:
     try:
         drafts_to_create = draft_ensurer(
             job_snapshot=job_snapshot,
@@ -99,9 +100,31 @@ def create_initial_outreach_plan_drafts(
             window_days=None,
         )
         if drafts_to_create:
-            repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
+            created = repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
+            draft_count = len(created)
+            log_event(
+                logger,
+                logging.INFO,
+                "outreach_plan.drafts.pre_generated",
+                job_id=job_id,
+                timeline_item_count=len(timeline_items),
+                ready_document_count=len(ready_documents),
+                created_draft_count=draft_count,
+            )
+            return draft_count
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.drafts.pre_generation_skipped",
+            job_id=job_id,
+            timeline_item_count=len(timeline_items),
+            ready_document_count=len(ready_documents),
+            created_draft_count=0,
+        )
+        return 0
     except Exception:
         logger.exception("Outreach plan drafts could not be pre-generated for job %s", job_id)
+        return 0
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -154,53 +177,48 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         session_id = request.headers.get(LOG_HEADER_SESSION_ID)
         trace_origin = request.headers.get(LOG_HEADER_TRACE_ORIGIN)
         started_at = datetime.now(timezone.utc)
-
-        log_event(
-            logger,
-            logging.INFO,
-            "backend.request.received",
+        with bind_log_context(
             request_id=request_id,
             action_id=action_id,
             session_id=session_id,
-            method=request.method,
-            path=request.url.path,
-            trace_origin=trace_origin,
-        )
-
-        try:
-            response = await call_next(request)
-        except Exception as exc:
-            duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+        ):
             log_event(
                 logger,
-                logging.ERROR,
-                "backend.request.failed",
-                request_id=request_id,
-                action_id=action_id,
-                session_id=session_id,
+                logging.INFO,
+                "backend.request.received",
                 method=request.method,
                 path=request.url.path,
-                duration_ms=duration_ms,
-                error=exc,
+                trace_origin=trace_origin,
             )
-            raise
 
-        duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
-        response.headers[LOG_HEADER_REQUEST_ID] = request_id
-        response.headers[LOG_HEADER_TRACE_ORIGIN] = "backend"
-        log_event(
-            logger,
-            logging.INFO if response.status_code < 500 else logging.WARNING,
-            "backend.request.completed",
-            request_id=request_id,
-            action_id=action_id,
-            session_id=session_id,
-            method=request.method,
-            path=request.url.path,
-            status=response.status_code,
-            duration_ms=duration_ms,
-        )
-        return response
+            try:
+                response = await call_next(request)
+            except Exception as exc:
+                duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+                log_event(
+                    logger,
+                    logging.ERROR,
+                    "backend.request.failed",
+                    method=request.method,
+                    path=request.url.path,
+                    duration_ms=duration_ms,
+                    error=exc,
+                )
+                raise
+
+            duration_ms = int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)
+            response.headers[LOG_HEADER_REQUEST_ID] = request_id
+            response.headers[LOG_HEADER_TRACE_ORIGIN] = "backend"
+            log_event(
+                logger,
+                logging.INFO if response.status_code < 500 else logging.WARNING,
+                "backend.request.completed",
+                method=request.method,
+                path=request.url.path,
+                status=response.status_code,
+                duration_ms=duration_ms,
+            )
+            return response
 
     @app.get("/health")
     def health() -> Response:
@@ -256,11 +274,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not payload.job_candidates:
             raise HTTPException(status_code=400, detail="At least one job candidate is required.")
 
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.inference.requested",
+            candidate_count=len(payload.job_candidates),
+            has_subject=bool(payload.reply.subject.strip()),
+            body_length=len(payload.reply.body.strip()),
+        )
+
         inferer: Callable[..., InboundEmailJobInferenceResponse] = app.state.inbound_email_job_inferer
         decision = inferer(
             reply=payload.reply,
             job_candidates=payload.job_candidates,
             settings=app.state.settings,
+        )
+        matched_job_id = decision.job_id if hasattr(decision, "job_id") else decision.get("job_id")
+        confidence = decision.confidence if hasattr(decision, "confidence") else decision.get("confidence")
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.inference.completed",
+            candidate_count=len(payload.job_candidates),
+            matched_job_id=matched_job_id,
+            confidence=confidence,
         )
         return InboundEmailJobInferenceResponse.model_validate(decision)
 
@@ -280,6 +317,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for document in repository.list_for_job(job_id)
             if str(document.get("status")) == "ready"
         ]
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.generate.inputs_loaded",
+            job_id=job_id,
+            timeline_item_count=len(timeline_items),
+            ready_document_count=len(ready_documents),
+            has_incoming_reply=payload.incoming_reply_context is not None,
+        )
         planned_steps = generator(
             job_snapshot=payload.job_snapshot,
             timeline_items=timeline_items,
@@ -287,11 +333,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             incoming_reply_context=payload.incoming_reply_context,
             settings=app.state.settings,
         )
-        repository.replace_outreach_plan_steps(
+        stored_steps = repository.replace_outreach_plan_steps(
             job_id,
             steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
         )
-        create_initial_outreach_plan_drafts(
+        created_draft_count = create_initial_outreach_plan_drafts(
             repository=repository,
             job_id=job_id,
             job_snapshot=payload.job_snapshot,
@@ -299,6 +345,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ready_documents=ready_documents,
             settings=app.state.settings,
             draft_ensurer=app.state.outreach_plan_draft_ensurer,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.generate.persisted",
+            job_id=job_id,
+            generated_step_count=len(planned_steps),
+            stored_step_count=len(stored_steps),
+            created_draft_count=created_draft_count,
         )
         enriched_steps = repository.list_outreach_plan_steps_with_drafts(job_id)
         return [
@@ -324,6 +379,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not reply_subject and not reply_body:
             raise HTTPException(status_code=400, detail="Reply subject or body is required.")
 
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.received",
+            job_id=job_id,
+            from_email=from_email,
+            has_subject=bool(reply_subject),
+            body_length=len(reply_body),
+        )
+
         headline_source = from_name or from_email or "debtor"
         timeline_item = repository.create_timeline_item(
             job_id=job_id,
@@ -344,6 +409,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 if part
             ),
         )
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.timeline_recorded",
+            job_id=job_id,
+            timeline_item_id=timeline_item["id"],
+            received_at=received_at,
+        )
 
         timeline_items = repository.list_timeline_for_job(job_id)
         ready_documents = [
@@ -351,6 +424,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for document in repository.list_for_job(job_id)
             if str(document.get("status")) == "ready"
         ]
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.replan_inputs_loaded",
+            job_id=job_id,
+            timeline_item_count=len(timeline_items),
+            ready_document_count=len(ready_documents),
+        )
         generator: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_generator
         planned_steps = generator(
             job_snapshot=payload.job_snapshot,
@@ -359,11 +440,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             incoming_reply_context=payload.reply,
             settings=app.state.settings,
         )
-        repository.replace_outreach_plan_steps(
+        stored_steps = repository.replace_outreach_plan_steps(
             job_id,
             steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
         )
-        create_initial_outreach_plan_drafts(
+        created_draft_count = create_initial_outreach_plan_drafts(
             repository=repository,
             job_id=job_id,
             job_snapshot=payload.job_snapshot,
@@ -371,6 +452,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ready_documents=ready_documents,
             settings=app.state.settings,
             draft_ensurer=app.state.outreach_plan_draft_ensurer,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.replan_persisted",
+            job_id=job_id,
+            stored_step_count=len(stored_steps),
+            created_draft_count=created_draft_count,
         )
 
         return {
@@ -392,23 +481,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository = DocumentRepository(app.state.settings)
         stored_steps = repository.list_outreach_plan_steps(job_id)
         if not stored_steps:
+            log_event(
+                logger,
+                logging.INFO,
+                "outreach_plan.drafts.ensure.skipped",
+                job_id=job_id,
+                reason="no_stored_steps",
+            )
             return []
+
+        timeline_items = repository.list_timeline_for_job(job_id)
+        ready_documents = [
+            document
+            for document in repository.list_for_job(job_id)
+            if str(document.get("status")) == "ready"
+        ]
+        existing_drafts = repository.list_outreach_plan_drafts(job_id)
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.drafts.ensure.requested",
+            job_id=job_id,
+            stored_step_count=len(stored_steps),
+            existing_draft_count=len(existing_drafts),
+            timeline_item_count=len(timeline_items),
+            ready_document_count=len(ready_documents),
+        )
 
         draft_ensurer: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_draft_ensurer
         drafts_to_create = draft_ensurer(
             job_snapshot=payload.job_snapshot,
-            timeline_items=repository.list_timeline_for_job(job_id),
-            documents=[
-                document
-                for document in repository.list_for_job(job_id)
-                if str(document.get("status")) == "ready"
-            ],
+            timeline_items=timeline_items,
+            documents=ready_documents,
             plan_steps=stored_steps,
-            existing_drafts=repository.list_outreach_plan_drafts(job_id),
+            existing_drafts=existing_drafts,
             settings=app.state.settings,
         )
         if drafts_to_create:
             repository.create_outreach_plan_drafts(job_id, drafts=drafts_to_create)
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.drafts.ensure.completed",
+            job_id=job_id,
+            stored_step_count=len(stored_steps),
+            created_draft_count=len(drafts_to_create),
+        )
 
         return [
             OutreachPlanStepResponse.model_validate(step)

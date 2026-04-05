@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
+from collections import Counter
 from datetime import datetime, timedelta
+from time import perf_counter
 from typing import Callable
 
 from openai import OpenAI
 
 from .config import Settings
+from .logging_utils import log_event
 from .outreach_planning import (
     PAYMENT_ACCOUNT_NUMBER,
     PAYMENT_SORT_CODE,
@@ -92,6 +96,7 @@ POST_HANDOVER_OUTREACH_DRAFTING_PROMPT = (
     "Before submitting, do a final pass to make sure the wording matches the actual scheduled dates and post-handover stage."
 )
 OUTREACH_DRAFTING_PROMPT = f"{PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT} {POST_HANDOVER_OUTREACH_DRAFTING_PROMPT}"
+logger = logging.getLogger(__name__)
 
 
 def is_draftable_step_type(step_type: str) -> bool:
@@ -298,37 +303,75 @@ def draft_outreach_communications(
         raise RuntimeError("OPENAI_API_KEY is not configured.")
 
     client = OpenAI(api_key=settings.openai_api_key)
-    response = client.responses.parse(
+    phase = phase_for(now_local, resolve_planned_handover_at(job_snapshot, now_local))
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="outreach_drafts.generate",
         model=OUTREACH_DRAFTING_MODEL,
-        input=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
-                        if phase_for(now_local, resolve_planned_handover_at(job_snapshot, now_local)) == PRE_HANDOVER_PHASE
-                        else POST_HANDOVER_OUTREACH_DRAFTING_PROMPT,
-                    },
-                    {
-                        "type": "input_text",
-                        "text": json.dumps(
-                            build_drafting_payload(
-                                job_snapshot=job_snapshot,
-                                timeline_items=timeline_items,
-                                documents=documents,
-                                plan_steps=plan_steps,
-                                existing_drafts=existing_drafts,
-                                target_steps=target_steps,
-                                now_local=now_local,
+        phase=phase,
+        target_step_count=len(target_steps),
+        existing_draft_count=len(existing_drafts),
+    )
+    try:
+        response = client.responses.parse(
+            model=OUTREACH_DRAFTING_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": PRE_HANDOVER_OUTREACH_DRAFTING_PROMPT
+                            if phase == PRE_HANDOVER_PHASE
+                            else POST_HANDOVER_OUTREACH_DRAFTING_PROMPT,
+                        },
+                        {
+                            "type": "input_text",
+                            "text": json.dumps(
+                                build_drafting_payload(
+                                    job_snapshot=job_snapshot,
+                                    timeline_items=timeline_items,
+                                    documents=documents,
+                                    plan_steps=plan_steps,
+                                    existing_drafts=existing_drafts,
+                                    target_steps=target_steps,
+                                    now_local=now_local,
+                                ),
+                                ensure_ascii=True,
                             ),
-                            ensure_ascii=True,
-                        ),
-                    },
-                ],
-            }
-        ],
-        text_format=OutreachPlanGeneratedCommunicationDraftBatch,
+                        },
+                    ],
+                }
+            ],
+            text_format=OutreachPlanGeneratedCommunicationDraftBatch,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="outreach_drafts.generate",
+            model=OUTREACH_DRAFTING_MODEL,
+            phase=phase,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="outreach_drafts.generate",
+        model=OUTREACH_DRAFTING_MODEL,
+        phase=phase,
+        duration_ms=int((perf_counter() - started_at) * 1000),
+        output_draft_count=len(response.output_parsed.drafts),
     )
     return response.output_parsed
 
@@ -353,6 +396,16 @@ def ensure_outreach_plan_drafts(
     window_end = now_local + timedelta(days=window_days) if window_days is not None else None
     existing_draft_step_ids = {str(draft["plan_step_id"]) for draft in existing_drafts}
     requested_step_ids = {str(step_id) for step_id in (target_step_ids or set()) if str(step_id).strip()}
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.drafts.ensure.started",
+        job_id=job_snapshot.id,
+        plan_step_count=len(plan_steps),
+        existing_draft_count=len(existing_drafts),
+        requested_step_count=len(requested_step_ids),
+        window_days=window_days,
+    )
 
     target_steps: list[dict[str, object]] = []
     for step in plan_steps:
@@ -372,7 +425,25 @@ def ensure_outreach_plan_drafts(
         target_steps.append(step)
 
     if not target_steps:
+        log_event(
+            logger,
+            logging.INFO,
+            "outreach_plan.drafts.ensure.no_targets",
+            job_id=job_snapshot.id,
+            requested_step_count=len(requested_step_ids),
+            existing_draft_count=len(existing_drafts),
+        )
         return []
+
+    target_step_counts = dict(Counter(str(step["type"]) for step in target_steps))
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.drafts.ensure.targets_selected",
+        job_id=job_snapshot.id,
+        target_step_count=len(target_steps),
+        target_step_counts=target_step_counts,
+    )
 
     draft_batch = (drafter or draft_outreach_communications)(
         job_snapshot=job_snapshot,
@@ -409,4 +480,13 @@ def ensure_outreach_plan_drafts(
             }
         )
 
+    created_draft_counts = dict(Counter(str(target_steps_by_id[draft["plan_step_id"]]["type"]) for draft in created_drafts))
+    log_event(
+        logger,
+        logging.INFO,
+        "outreach_plan.drafts.ensure.completed",
+        job_id=job_snapshot.id,
+        created_draft_count=len(created_drafts),
+        created_draft_counts=created_draft_counts,
+    )
     return created_drafts

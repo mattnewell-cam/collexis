@@ -9,6 +9,7 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `communications_trailing_handover_divider.md` - Past comms timeline now keeps the handover divider visible when handover falls after the last recorded communication.
 - `outreach_planner_guidance.md` - Generate-plan modal captures optional tone/context guidance and stores it under a dedicated job-notes heading.
 - `persistent_log_storage.md` - Structured logs now persist to Supabase `app_logs`, and AGENTS.md now requires temp logs/screenshots to stay out of the repo root.
+- `logging_observability_expansion.md` - Added server-component/proxy auth logs, backend request-scoped trace binding, timed OpenAI/Supabase/Brevo logging, and deeper WhatsApp webhook event logs without touching audit SQL work.
 - `password_reset_callback_fix.md` - Recovery links must round-trip through `/auth/callback` before `/reset-password` or the password update fails.
 - `production_signup_flow.md` - Signup requests can succeed without feedback; show a confirmation state instead of redirecting immediately.
 - `outreach_plan_change_requests.md` - Outreach-plan pages now expose a dedicated Suggest changes flow and persist plan-change requests alongside tone guidance.

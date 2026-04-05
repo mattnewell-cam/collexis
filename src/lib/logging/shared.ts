@@ -1,6 +1,6 @@
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
-export type LogSource = 'client' | 'next-api' | 'backend';
+export type LogSource = 'client' | 'next-api' | 'backend' | 'server-component' | 'proxy';
 
 export type LogContext = Record<string, unknown>;
 
@@ -191,4 +191,3 @@ export function sanitizeLogContext(context: LogContext | undefined, depth = 0): 
 
   return Object.fromEntries(sanitizedEntries);
 }
-
