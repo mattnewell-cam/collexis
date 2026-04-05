@@ -11,3 +11,4 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `password_reset_callback_fix.md` - Recovery links must round-trip through `/auth/callback` before `/reset-password` or the password update fails.
 - `production_signup_flow.md` - Signup requests can succeed without feedback; show a confirmation state instead of redirecting immediately.
 - `outreach_plan_change_requests.md` - Outreach-plan pages now expose a dedicated Suggest changes flow and persist plan-change requests alongside tone guidance.
+- `supabase_migration_history_repair.md` - Production Supabase migration history was repaired to match local timestamps, and the missing outreach scheduler columns were applied.
