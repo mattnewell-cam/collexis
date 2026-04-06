@@ -2,19 +2,24 @@
 ## Workflow
 1. User adds job files (invoice, whatsapp ss, emails...)
 2. GPT processes into details and a timeline. User reviews, adds any other details, instructions, communications.
-3. User sets days until full Collexis handover, hits generate plan. 
+3. TODO: A chatbot extracts some extra context (optional skip) such as relationship, tone, vulnerabilities
+3. User sets "friendly days" until proper handover (minimum 3wd to avoid nasty surprises), hits generate plan. 
 4. 5.4-thinking creates the basic comms skeleton, 5.4-mini fills in the actual emails/msgs/voicemails to send. 
+5. Friendly communications go out.
+   - Initial ones are just "oh hey can u pay"
+   - Later ones are "we will have to hand this off to our debt collection team"
+   - Depending on response, we may ask user what to do, or negotiate, or move to (6), or move to (7)
+   - If no response, go to (6)
+6. "Handover" to Collexis. Generate new plan, w/ more aggressive language + legal threats
+   - User cannot see details of communications - we fully own them now.
+   - Again, depending on response, we may ask user what to do, or negotiate, or move to (6), or move to (7)
    - TODO: add skip-tracing item partway through
-5. Communications go out. 
-   - TODO: If at any point the debtor responds positively, reassess and potentially end communications / ask the user
-   - TODO: If the debtor responds negatively, accelerate straight to (6)
-6. If no response (or negative), "handover". A new plan is generated, with more aggressive language & legal threats. 
-   - User cannot see details.
-   - Invoices (can?) now demand payment to us.
-7. If still nothing, we enter legal stage. File a Letter of Action. Wait 30d. File a CCJ. (Both with Garfield).
+   - TODO £20 surcharge
+   - TODO Demand payment to us not user; automatically detect payment and cease plan.
+   - If no response, go to (y)
+7. Legal stage. File a Letter of Action. Wait 30d. File a small claim. If they defend it, hand back to user.
 
 ### UI
-
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
@@ -29,4 +34,3 @@
   - SMS: not yet working as Telnyx info under review
   - Calls: needs Telnyx and a bunch more wiring for voice AI
   - Letters: handle later
-

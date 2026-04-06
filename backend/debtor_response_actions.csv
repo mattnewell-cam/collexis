@@ -1,0 +1,21 @@
+Response,Friendly,Post-handover,Post-LoA,Notes
+Have paid,Get user confirmation,Auto check,Auto check,
+Will pay by X,"If less than user-defined max wait, wait. If greater, demand payment by max wait.","If <1mo and 1st time, wait. 
+If >1mo but 1st, negotiate. 
+If not 1st, set 3wd deadline and threaten legal","If <1mo and 1st time, wait.
+If >1mo and 1st, negotiate. 
+If not 1st, simply state timeline for claim filing & tell to pay. ","Treat ""shortly"" as 1 day
+AI has some leeway - e.g. if user-defined excuse & TL have been consistent from start and are reasonable, probably just accept"
+Will pay (no TL),"Ask for TL, then refer to above","If 1st time, ask for TL then refer to above.
+Else, 3wd deadline + threaten legal","If 1st time, ask for TL, refer above. 
+Else, state timeline & tell to pay. ",
+Can't (fully?) pay,Handover + negotiate,Negotiate,"Negotiate, state TL ",Adjust tone to their past behaviour
+Dispute,"Demand evidence, flag to user, ask if they want to go legal","Demand evidence, flag to user, ask if they want to go legal","Demand evidence, flag to user, ask if they want to continue legal",
+Refusal (no reasonable grounds),Go legal,Go legal,Continue,
+,,,,
+"""Negotiate"" means understanding why, explaining legal consequences, potentially offering a payment plan, MAYBE a discount.",,,,
+"Negotiations should fight hard to maximise (a) recovered amount and (b) speed, in order of priority. Full payment in 3 weeks beats a 3 month payment plan. A 3 month payment plan beats full payment in 3 months. Fight tooth and nail for best possible terms. ",,,,
+"Max discount we can ever offer: 30% (and 12mo TL). If that fails, we have to go legal. But don't broadcast willingness to go this lenient. ",,,,
+,,,,
+Collexis AI should have leeway in these decisions to deviate where facts demand. ,,,,
+"E.g. if user max wait = 2 weeks and debtor is adamant they can pay in 3, shouldn't ",,,,
