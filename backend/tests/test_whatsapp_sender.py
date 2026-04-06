@@ -8,6 +8,7 @@ from backend.app.whatsapp_sender import (
     LEGACY_PLAYWRIGHT_PROFILE_DIR,
     PLAYWRIGHT_PROFILE_DIR_ENV,
     RUNTIME_PLAYWRIGHT_PROFILE_DIR,
+    SEND_CONFIRMED_SENTINEL,
     SEND_WHATSAPP_SCRIPT,
     playwright_profile_dir,
     send_playwright_whatsapp_messages,
@@ -39,7 +40,12 @@ def test_send_playwright_whatsapp_messages_invokes_script_for_each_recipient(mon
     def fake_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         environments.append(kwargs["env"])
-        return subprocess.CompletedProcess(args=command, returncode=0, stdout="ok", stderr="")
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=f"Delivered.\n{SEND_CONFIRMED_SENTINEL}\n",
+            stderr="",
+        )
 
     message_ids = send_playwright_whatsapp_messages(
         recipients=["+447700900111", "+447700900222"],
@@ -73,6 +79,30 @@ def test_send_playwright_whatsapp_messages_raises_script_error(monkeypatch) -> N
         assert str(exc) == "send failed"
     else:
         raise AssertionError("Expected a RuntimeError when the send script fails.")
+
+
+def test_send_playwright_whatsapp_messages_requires_delivery_confirmation(monkeypatch) -> None:
+    monkeypatch.setattr("backend.app.whatsapp_sender.playwright_whatsapp_configuration_error", lambda: None)
+
+    def inconclusive_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout="Could not confirm delivery, but the message may still have sent.\n",
+            stderr="",
+        )
+
+    try:
+        send_playwright_whatsapp_messages(
+            recipients=["+447700900111"],
+            text_body="Test body",
+            settings=build_settings(),
+            runner=inconclusive_runner,
+        )
+    except RuntimeError as exc:
+        assert "Could not confirm delivery" in str(exc)
+    else:
+        raise AssertionError("Expected a RuntimeError when delivery is not confirmed.")
 
 
 def test_playwright_profile_dir_prefers_configured_env(monkeypatch) -> None:

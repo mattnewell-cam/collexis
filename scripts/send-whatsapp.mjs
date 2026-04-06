@@ -25,6 +25,7 @@ const RUNTIME_PROFILE_DIR = path.join(__dirname, '..', 'runtime', 'playwright', 
 const WA_LOAD_TIMEOUT = 90_000;
 const QR_READY_TIMEOUT = 5 * 60_000;
 const CONFIRM_TIMEOUT = 10_000;
+const SEND_CONFIRMED_SENTINEL = 'WHATSAPP_SEND_CONFIRMED';
 
 function isProfilePopulated(profileDir) {
   try {
@@ -129,6 +130,22 @@ async function confirmSent(page) {
   return false;
 }
 
+async function assertNoRecipientError(page, phone) {
+  const errorPatterns = [
+    `The number +${phone} isn't on WhatsApp.`,
+    'The phone number shared via url is invalid.',
+    'Phone number shared via url is invalid.',
+    'This number is not on WhatsApp.',
+  ];
+
+  for (const text of errorPatterns) {
+    const match = page.getByText(text, { exact: false }).first();
+    if (await match.isVisible({ timeout: 1_500 }).catch(() => false)) {
+      throw new Error(await match.innerText().catch(() => `WhatsApp rejected +${phone}.`));
+    }
+  }
+}
+
 async function launchContext({ headed }) {
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: !headed,
@@ -204,6 +221,8 @@ async function sendMessage({ phone, message, headed }) {
       throw new Error(`WhatsApp failed to load (state: ${state}).`);
     }
 
+    await assertNoRecipientError(page, phone);
+
     const box = await findComposeBox(page);
     await box.click();
     if (!(await box.innerText()).trim()) {
@@ -211,16 +230,21 @@ async function sendMessage({ phone, message, headed }) {
     }
     await page.waitForTimeout(300);
 
-    const sendButton = page.locator('[data-testid="send"]').first();
+    const sendButton = page.locator('[data-testid="send"], button[aria-label="Send"]').first();
     if (await sendButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
       await sendButton.click();
     } else {
-      await page.keyboard.press('Enter');
+      await box.press('Enter');
     }
 
     console.log('Message submitted. Confirming delivery...');
+    await assertNoRecipientError(page, phone);
     const delivered = await confirmSent(page);
-    console.log(delivered ? 'Delivered.' : 'Could not confirm delivery, but the message may still have sent.');
+    if (!delivered) {
+      throw new Error('Message delivery could not be confirmed.');
+    }
+    console.log('Delivered.');
+    console.log(SEND_CONFIRMED_SENTINEL);
   } finally {
     await context.close();
   }

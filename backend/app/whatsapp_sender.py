@@ -14,6 +14,7 @@ PLAYWRIGHT_PROFILE_DIR_ENV = "COLLEXIS_PLAYWRIGHT_PROFILE_DIR"
 SEND_WHATSAPP_SCRIPT = REPO_ROOT / "scripts" / "send-whatsapp.mjs"
 LEGACY_PLAYWRIGHT_PROFILE_DIR = REPO_ROOT / ".playwright-profile"
 RUNTIME_PLAYWRIGHT_PROFILE_DIR = REPO_ROOT / "runtime" / "playwright" / "whatsapp-profile"
+SEND_CONFIRMED_SENTINEL = "WHATSAPP_SEND_CONFIRMED"
 
 
 def node_executable() -> str:
@@ -62,6 +63,13 @@ def _trim_command_error(result: subprocess.CompletedProcess[str]) -> str:
     return combined or f"WhatsApp send script exited with code {result.returncode}."
 
 
+def _delivery_confirmation_error(result: subprocess.CompletedProcess[str]) -> str:
+    details = _trim_command_error(result)
+    if details:
+        return details
+    return "WhatsApp send script exited without confirming delivery."
+
+
 def send_playwright_whatsapp_messages(
     *,
     recipients: Sequence[str],
@@ -96,6 +104,8 @@ def send_playwright_whatsapp_messages(
         )
         if result.returncode != 0:
             raise RuntimeError(_trim_command_error(result))
+        if SEND_CONFIRMED_SENTINEL not in (result.stdout or ""):
+            raise RuntimeError(_delivery_confirmation_error(result))
         message_ids.append(None)
 
     return message_ids
