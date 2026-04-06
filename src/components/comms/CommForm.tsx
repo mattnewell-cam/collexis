@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { runClientAction } from '@/lib/logging/client';
-import { Communication, CommCategory, CommSender, CommSubtype } from '@/types/communication';
+import { Communication, CommCategory, CommRecipient, CommSender, CommSubtype } from '@/types/communication';
 import type { Job } from '@/types/job';
 import { normalizeCommunicationDate } from '@/lib/communicationDates';
 import { sendJobEmail } from '@/lib/jobEmail';
@@ -11,6 +11,7 @@ import {
   CATEGORIES,
   getCategoryDef,
   getDefaultSenderForCategory,
+  getRecipientLabel,
   getSenderLabel,
 } from './categoryConfig';
 
@@ -64,6 +65,7 @@ export default function CommForm({
   const [date, setDate] = useState(editing ? normalizeCommunicationDate(editing.date) : today);
   const [shortDescription, setShortDescription] = useState(editing?.shortDescription ?? '');
   const [details, setDetails] = useState(editing?.details ?? '');
+  const [recipient, setRecipient] = useState<CommRecipient>(editing?.recipient ?? 'debtor');
   const [selectedEmail, setSelectedEmail] = useState(job.emails[0] ?? '');
   const [selectedPhone, setSelectedPhone] = useState(job.phones[0] ?? '');
   const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
@@ -87,6 +89,7 @@ export default function CommForm({
     category,
     subtype: hasSubtypes && subtype ? (subtype as CommSubtype) : undefined,
     sender: showSenderField ? sender : undefined,
+    recipient,
     date,
     shortDescription: shortDescription.trim() || fallbackShortDescription || '',
     details,
@@ -232,7 +235,7 @@ export default function CommForm({
         )}
 
         {showSenderField && (
-          <Field label="Sender">
+          <Field label="From">
             <select
               className={inputCls}
               value={sender}
@@ -240,6 +243,20 @@ export default function CommForm({
             >
               <option value="you">{getSenderLabel('you')}</option>
               <option value="collexis">{getSenderLabel('collexis')}</option>
+            </select>
+          </Field>
+        )}
+
+        {showSenderField && (
+          <Field label="To">
+            <select
+              className={inputCls}
+              value={recipient}
+              onChange={e => setRecipient(e.target.value as CommRecipient)}
+            >
+              <option value="debtor">{getRecipientLabel('debtor')}</option>
+              <option value="creditor">{getRecipientLabel('creditor')}</option>
+              <option value="collexis">{getRecipientLabel('collexis')}</option>
             </select>
           </Field>
         )}

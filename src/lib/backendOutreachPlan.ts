@@ -1,3 +1,4 @@
+import type { DebtorResponseActionResult } from '@/types/communication';
 import type { Job } from '@/types/job';
 import type { PostNowDraft, PostNowStep } from '@/types/postNowPlan';
 import { toApiJobSnapshot } from './apiJobSnapshot';
@@ -28,6 +29,17 @@ type ApiOutreachPlanStep = {
   draft?: ApiOutreachPlanDraft | null;
 };
 
+type ApiDebtorResponseActionResult = {
+  classification: string;
+  action: string;
+  stated_deadline: string | null;
+  computed_deadline: string | null;
+  has_missed_deadlines: boolean;
+  confidence: number;
+  reasoning: string;
+  user_message: string;
+};
+
 type ApiInboundEmailReplyResponse = {
   timeline_item: {
     id: string;
@@ -35,14 +47,18 @@ type ApiInboundEmailReplyResponse = {
     category: string;
     subtype: string | null;
     sender: string | null;
+    recipient: string | null;
     date: string;
     short_description: string;
     details: string;
+    response_classification: string | null;
+    response_action: string | null;
     linked_document_ids: string[];
     created_at: string;
     updated_at: string;
   };
   plan_steps: ApiOutreachPlanStep[];
+  response_action: ApiDebtorResponseActionResult;
 };
 
 export type InboundEmailReplyInput = {
@@ -134,11 +150,24 @@ export async function generateOutreachPlan(job: Job, trace?: TraceContext): Prom
   return payload.map(mapApiOutreachPlanStep);
 }
 
+function mapApiResponseAction(raw: ApiDebtorResponseActionResult): DebtorResponseActionResult {
+  return {
+    classification: raw.classification as DebtorResponseActionResult['classification'],
+    action: raw.action as DebtorResponseActionResult['action'],
+    statedDeadline: raw.stated_deadline,
+    computedDeadline: raw.computed_deadline,
+    hasMissedDeadlines: raw.has_missed_deadlines,
+    confidence: raw.confidence,
+    reasoning: raw.reasoning,
+    userMessage: raw.user_message,
+  };
+}
+
 export async function receiveInboundEmailReply(
   job: Job,
   reply: InboundEmailReplyInput,
   trace?: TraceContext,
-): Promise<{ planSteps: PostNowStep[] }> {
+): Promise<{ planSteps: PostNowStep[]; responseAction: DebtorResponseActionResult }> {
   const response = await loggedFetch(`/api/jobs/${job.id}/receive-email-reply`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -165,13 +194,14 @@ export async function receiveInboundEmailReply(
   const payload = await response.json() as ApiInboundEmailReplyResponse;
   return {
     planSteps: payload.plan_steps.map(mapApiOutreachPlanStep),
+    responseAction: mapApiResponseAction(payload.response_action),
   };
 }
 
 export async function receiveInboundEmailReplyBySender(
   reply: InboundEmailReplyInput & { jobId?: string },
   trace?: TraceContext,
-): Promise<{ planSteps: PostNowStep[] }> {
+): Promise<{ planSteps: PostNowStep[]; responseAction: DebtorResponseActionResult }> {
   const response = await loggedFetch('/api/email-replies', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -198,6 +228,7 @@ export async function receiveInboundEmailReplyBySender(
   const payload = await response.json() as ApiInboundEmailReplyResponse;
   return {
     planSteps: payload.plan_steps.map(mapApiOutreachPlanStep),
+    responseAction: mapApiResponseAction(payload.response_action),
   };
 }
 

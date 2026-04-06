@@ -10,6 +10,7 @@ export type ApiTimelineItem = {
   category: Communication['category'];
   subtype: Communication['subtype'] | 'text' | null;
   sender: Communication['sender'] | null;
+  recipient: Communication['recipient'] | null;
   date: string;
   short_description: string;
   details: string;
@@ -39,6 +40,7 @@ export function mapApiTimelineItem(item: ApiTimelineItem): Communication {
     category: item.category,
     subtype: item.subtype === 'text' ? 'sms' : item.subtype ?? undefined,
     sender: item.sender ?? undefined,
+    recipient: (item.recipient as Communication['recipient']) ?? undefined,
     date: normalizeCommunicationDate(item.date),
     shortDescription: item.short_description,
     details: item.details,
@@ -51,6 +53,7 @@ function toApiPayload(comm: Communication) {
     category: comm.category,
     subtype: comm.subtype ?? null,
     sender: comm.sender ?? null,
+    recipient: comm.recipient ?? null,
     date: comm.date,
     short_description: comm.shortDescription,
     details: comm.details,

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { logClientEvent, runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
-import type { Communication } from '@/types/communication';
+import type { Communication, DebtorResponseActionResult } from '@/types/communication';
 import type { DocumentRecord } from '@/types/document';
 import type { Job } from '@/types/job';
 import type { PostNowDraft, PostNowStep } from '@/types/postNowPlan';
@@ -23,6 +23,7 @@ import {
   updateTimelineItem,
 } from '@/lib/backendTimeline';
 import CommForm from './comms/CommForm';
+import ResponseActionBanner from './comms/ResponseActionBanner';
 import Timeline from './comms/Timeline';
 import PostNowTimeline from './comms/PostNowTimeline';
 
@@ -170,6 +171,8 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [deleteConfirmComm, setDeleteConfirmComm] = useState<Communication | null>(null);
   const [planConfirmState, setPlanConfirmState] = useState<PlanConfirmState>(null);
   const [pendingUndoDelete, setPendingUndoDelete] = useState<PendingUndoDelete | null>(null);
+  const [pendingResponseAction, setPendingResponseAction] = useState<DebtorResponseActionResult | null>(null);
+  const [responseActionLoading, setResponseActionLoading] = useState(false);
   const [showTimelineNotice, setShowTimelineNotice] = useState(searchParams.get('notice') === 'timeline-review');
   const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
   const [planToneInput, setPlanToneInput] = useState(initialPlannerSections.toneGuidance);
@@ -719,6 +722,29 @@ export default function JobCommsView({ job }: { job: Job }) {
                       ) : null}
                     </div>
                   </div>
+                  {pendingResponseAction && (
+                    <div className="px-5 pb-3">
+                      <ResponseActionBanner
+                        action={pendingResponseAction}
+                        loading={responseActionLoading}
+                        onConfirmHandover={() => {
+                          setResponseActionLoading(true);
+                          // Set handover to now and regenerate plan with legal steps
+                          const updated = { ...jobState, plannedHandoverAt: new Date().toISOString() };
+                          setJobState(updated);
+                          setPendingResponseAction(null);
+                          setResponseActionLoading(false);
+                        }}
+                        onCancelHandover={() => setPendingResponseAction(null)}
+                        onConfirmPaymentReceived={() => {
+                          setPendingResponseAction(null);
+                        }}
+                        onPaymentNotReceived={() => {
+                          setPendingResponseAction(null);
+                        }}
+                      />
+                    </div>
+                  )}
                   <PostNowTimeline
                     steps={postNowSteps}
                     plannedHandoverAt={jobState.plannedHandoverAt}

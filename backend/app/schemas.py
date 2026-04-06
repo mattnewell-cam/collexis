@@ -6,6 +6,25 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
+DebtorResponseClassification = Literal[
+    "refused-or-disputed",
+    "agreed-with-deadline",
+    "agreed-without-deadline",
+    "cant-afford",
+    "claims-paid",
+    "unclear",
+]
+
+DebtorResponseAction = Literal[
+    "suggest-handover",
+    "set-deadline",
+    "offer-payment-plan",
+    "pause-until-deadline",
+    "await-payment-confirmation",
+    "replan",
+    "none",
+]
+
 DocumentStatus = Literal["processing", "ready", "failed"]
 ProcessingProfile = Literal["default", "job-intake"]
 TimelineCategory = Literal[
@@ -27,6 +46,7 @@ TimelineSubtype = Literal[
     "in-person",
 ]
 TimelineSender = Literal["you", "collexis"]
+TimelineRecipient = Literal["debtor", "creditor", "collexis"]
 TimelineDecisionAction = Literal["create_new", "link_existing"]
 
 
@@ -90,9 +110,12 @@ class TimelineItemResponse(BaseModel):
     category: TimelineCategory
     subtype: TimelineSubtype | None = None
     sender: TimelineSender | None = None
+    recipient: TimelineRecipient | None = None
     date: str
     short_description: str
     details: str
+    response_classification: DebtorResponseClassification | None = None
+    response_action: DebtorResponseAction | None = None
     linked_document_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
@@ -102,6 +125,7 @@ class TimelineItemCreate(BaseModel):
     category: TimelineCategory
     subtype: TimelineSubtype | None = None
     sender: TimelineSender | None = None
+    recipient: TimelineRecipient | None = None
     date: str
     short_description: str
     details: str = ""
@@ -111,6 +135,7 @@ class TimelineItemUpdate(BaseModel):
     category: TimelineCategory | None = None
     subtype: TimelineSubtype | None = None
     sender: TimelineSender | None = None
+    recipient: TimelineRecipient | None = None
     date: str | None = None
     short_description: str | None = None
     details: str | None = None
@@ -257,3 +282,21 @@ class DebtRecoveryContext(BaseModel):
     payment_sort_code: str = Field(default="")
     payment_account_number: str = Field(default="")
     phase: Literal["pre-handover", "post-handover"] = "pre-handover"
+
+
+class DebtorResponseClassificationResult(BaseModel):
+    classification: DebtorResponseClassification
+    stated_deadline: str | None = Field(default=None, description="ISO date if the debtor named a specific payment date")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    reasoning: str = Field(default="")
+
+
+class DebtorResponseActionResult(BaseModel):
+    classification: DebtorResponseClassification
+    action: DebtorResponseAction
+    stated_deadline: str | None = None
+    computed_deadline: str | None = Field(default=None, description="3 working-day deadline (2 if 3 lands on Sunday)")
+    has_missed_deadlines: bool = False
+    confidence: float = 0.0
+    reasoning: str = Field(default="")
+    user_message: str = Field(default="", description="Human-readable summary for the UI")

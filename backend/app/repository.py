@@ -61,9 +61,12 @@ def row_to_timeline_item(row: Any) -> dict[str, Any]:
         "category": row["category"],
         "subtype": normalize_sms_channel(row["subtype"]),
         "sender": row["sender"],
+        "recipient": row["recipient"] if "recipient" in row.keys() else None,
         "date": row["date"],
         "short_description": row["short_description"],
         "details": row["details"],
+        "response_classification": row["response_classification"] if "response_classification" in row.keys() else None,
+        "response_action": row["response_action"] if "response_action" in row.keys() else None,
         "created_at": datetime.fromisoformat(row["created_at"]),
         "updated_at": datetime.fromisoformat(row["updated_at"]),
     }
@@ -312,6 +315,9 @@ class SQLiteDocumentRepository:
         date: str,
         short_description: str,
         details: str,
+        recipient: str | None = None,
+        response_classification: str | None = None,
+        response_action: str | None = None,
         timeline_item_id: str | None = None,
         created_at: str | None = None,
         updated_at: str | None = None,
@@ -322,9 +328,11 @@ class SQLiteDocumentRepository:
             conn.execute(
                 """
                 INSERT INTO timeline_items (
-                    id, job_id, category, subtype, sender, date,
-                    short_description, details, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    id, job_id, category, subtype, sender, recipient, date,
+                    short_description, details,
+                    response_classification, response_action,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -332,9 +340,12 @@ class SQLiteDocumentRepository:
                     category,
                     normalize_sms_channel(subtype),
                     sender,
+                    recipient,
                     date,
                     short_description,
                     details,
+                    response_classification,
+                    response_action,
                     now,
                     updated_at or now,
                 ),
@@ -352,7 +363,7 @@ class SQLiteDocumentRepository:
                 raise KeyError(timeline_item_id)
             return timeline_item
 
-        allowed = {"category", "subtype", "sender", "date", "short_description", "details"}
+        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action"}
         invalid = set(fields) - allowed
         if invalid:
             raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")

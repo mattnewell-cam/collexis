@@ -1,4 +1,4 @@
-import { CommCategory, ChaseSubtype, CommSender, ConversationSubtype } from '@/types/communication';
+import { CommCategory, ChaseSubtype, CommRecipient, CommSender, ConversationSubtype } from '@/types/communication';
 
 export interface CategoryDef {
   value: CommCategory;
@@ -65,4 +65,10 @@ export function getDefaultSenderForCategory(category: CommCategory): CommSender 
 
 export function getSenderLabel(sender: CommSender): string {
   return sender === 'collexis' ? 'Collexis' : 'You';
+}
+
+export function getRecipientLabel(recipient: CommRecipient): string {
+  if (recipient === 'debtor') return 'To debtor';
+  if (recipient === 'collexis') return 'To Collexis';
+  return 'To creditor';
 }
