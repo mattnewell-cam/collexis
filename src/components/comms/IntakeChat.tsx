@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loggedFetch } from '@/lib/logging/fetch';
-import { toApiJobSnapshot } from '@/lib/apiJobSnapshot';
 import type { Job } from '@/types/job';
 
 type FieldStatus = 'known' | 'not_yet_known' | 'skipped';
@@ -31,7 +30,6 @@ export default function IntakeChat({ job, onComplete, onCancel }: IntakeChatProp
   const [messages, setMessages] = useState<IntakeChatMessage[]>([]);
   const [fieldStatuses, setFieldStatuses] = useState<Record<string, FieldStatus>>({});
   const [currentField, setCurrentField] = useState<string | null>(null);
-  const [contextSummary, setContextSummary] = useState('');
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,7 +78,6 @@ export default function IntakeChat({ job, onComplete, onCancel }: IntakeChatProp
         const result = await sendToBackend([], {});
         setFieldStatuses(result.field_statuses);
         setCurrentField(result.current_field);
-        setContextSummary(result.context_summary);
         if (result.all_complete) {
           onComplete(result.context_summary);
           return;
@@ -117,7 +114,6 @@ export default function IntakeChat({ job, onComplete, onCancel }: IntakeChatProp
       const result = await sendToBackend(nextMessages, fieldStatuses);
       setFieldStatuses(result.field_statuses);
       setCurrentField(result.current_field);
-      setContextSummary(result.context_summary);
 
       if (result.all_complete) {
         setMessages(prev => [...prev, { role: 'assistant', content: result.assistant_message }]);
@@ -148,7 +144,6 @@ export default function IntakeChat({ job, onComplete, onCancel }: IntakeChatProp
       const result = await sendToBackend(nextMessages, nextStatuses);
       setFieldStatuses(result.field_statuses);
       setCurrentField(result.current_field);
-      setContextSummary(result.context_summary);
 
       if (result.all_complete) {
         setMessages(prev => [...prev, { role: 'assistant', content: result.assistant_message }]);
