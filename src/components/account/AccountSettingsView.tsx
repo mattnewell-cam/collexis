@@ -6,12 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { UserProfile } from '@/types/account';
 
-type Tab = 'profile' | 'company' | 'security';
+type Tab = 'profile' | 'security';
 
-const tabs: Array<{ id: Tab; label: string; description: string }> = [
-  { id: 'profile', label: 'Profile', description: 'Your contact details' },
-  { id: 'company', label: 'Company', description: 'Business information' },
-  { id: 'security', label: 'Security', description: 'Password and access' },
+const tabs: Array<{ id: Tab; label: string }> = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'security', label: 'Security' },
 ];
 
 const emptyPasswordState = {
@@ -121,9 +120,6 @@ function AccountSettingsPanel({
           <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h1 className="text-3xl font-semibold tracking-tight text-slate-950">Settings</h1>
-              <p className="mt-2 text-sm text-slate-500">
-                Manage your profile, company details, and password.
-              </p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
               <p className="font-medium text-slate-900">{user.profile.company}</p>
@@ -149,7 +145,6 @@ function AccountSettingsPanel({
                     }`}
                   >
                     <div className="text-sm font-semibold">{tab.label}</div>
-                    <div className="mt-1 text-xs text-slate-500">{tab.description}</div>
                   </Link>
                 );
               })}
@@ -201,32 +196,6 @@ function AccountSettingsPanel({
                   />
                 </label>
 
-                {profileError ? (
-                  <div className="sm:col-span-2 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                    {profileError}
-                  </div>
-                ) : null}
-
-                {profileMessage ? (
-                  <div className="sm:col-span-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {profileMessage}
-                  </div>
-                ) : null}
-
-                <div className="sm:col-span-2 flex justify-end">
-                  <button
-                    type="submit"
-                    className="rounded-2xl px-5 py-3 text-sm font-semibold text-white transition hover:opacity-95 active:opacity-90"
-                    style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
-                  >
-                    Save profile
-                  </button>
-                </div>
-              </form>
-            ) : null}
-
-            {activeTab === 'company' ? (
-              <form className="grid gap-5 sm:grid-cols-2" onSubmit={handleProfileSubmit}>
                 <label className="block sm:col-span-2">
                   <span className="mb-2 block text-sm font-medium text-slate-700">Company</span>
                   <input
@@ -277,7 +246,7 @@ function AccountSettingsPanel({
                     className="rounded-2xl px-5 py-3 text-sm font-semibold text-white transition hover:opacity-95 active:opacity-90"
                     style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
                   >
-                    Save company details
+                    Save profile
                   </button>
                 </div>
               </form>
