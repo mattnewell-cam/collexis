@@ -24,8 +24,9 @@ except ZoneInfoNotFoundError:
     OUTREACH_TIMEZONE = None
 WRITTEN_STEP_TYPES = {"email", "sms", "whatsapp", "letter-warning", "letter-of-claim"}
 LEGAL_STEP_TYPES = {"letter-warning", "letter-of-claim", "initiate-legal-action"}
-PRE_HANDOVER_PHASE = "pre-handover"
+PRE_HANDOVER_PHASE = "friendly"
 POST_HANDOVER_PHASE = "post-handover"
+POST_LOA_PHASE = "post-loa"
 PAYMENT_SORT_CODE = "01 02 03"
 PAYMENT_ACCOUNT_NUMBER = "123456"
 COURT_FEE_BANDS: tuple[tuple[float, float], ...] = (

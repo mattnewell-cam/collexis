@@ -42,7 +42,8 @@ export interface Communication {
 }
 
 export type DebtorResponseClassification =
-  | 'refused-or-disputed'
+  | 'dispute'
+  | 'refusal'
   | 'agreed-with-deadline'
   | 'agreed-without-deadline'
   | 'cant-afford'
@@ -50,21 +51,32 @@ export type DebtorResponseClassification =
   | 'unclear';
 
 export type DebtorResponseAction =
-  | 'suggest-handover'
-  | 'set-deadline'
-  | 'offer-payment-plan'
-  | 'pause-until-deadline'
   | 'await-payment-confirmation'
+  | 'auto-check-payment'
+  | 'pause-until-deadline'
+  | 'negotiate'
+  | 'set-deadline'
+  | 'ask-for-timeline'
+  | 'threaten-deadline'
+  | 'demand-evidence'
+  | 'suggest-handover'
+  | 'go-legal'
+  | 'continue-legal'
   | 'replan'
   | 'none';
+
+export type DebtRecoveryPhase = 'friendly' | 'post-handover' | 'post-loa';
 
 export interface DebtorResponseActionResult {
   classification: DebtorResponseClassification;
   action: DebtorResponseAction;
+  phase: DebtRecoveryPhase;
   statedDeadline: string | null;
   computedDeadline: string | null;
   hasMissedDeadlines: boolean;
+  isFirstOffence: boolean;
   confidence: number;
   reasoning: string;
   userMessage: string;
+  guidanceNotes: string;
 }
