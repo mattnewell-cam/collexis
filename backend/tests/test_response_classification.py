@@ -406,6 +406,17 @@ class TestDetermineResponseAction:
             phase="post-loa",
         )
         assert result.action == "set-deadline"
+        assert result.computed_deadline is not None
+
+    def test_agreed_deadline_post_loa_repeat_sets_deadline_with_date(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
+            job_snapshot=self._make_job(),
+            timeline_items=self._prior_promise_timeline(),
+            phase="post-loa",
+        )
+        assert result.action == "set-deadline"
+        assert result.computed_deadline is not None
 
     # --- cant-afford ---
 

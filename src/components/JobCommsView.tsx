@@ -277,6 +277,42 @@ export default function JobCommsView({ job }: { job: Job }) {
     };
   }, []);
 
+  // Deadline monitoring — check on load if any agreed-with-deadline items have
+  // a deadline in the past with no subsequent claims-paid, and surface a banner.
+  useEffect(() => {
+    if (loading || comms.length === 0 || pendingResponseAction) return;
+
+    const today = new Date().toISOString().split('T')[0];
+    for (let i = 0; i < comms.length; i++) {
+      const comm = comms[i];
+      if (comm.responseClassification !== 'agreed-with-deadline') continue;
+      const deadline = comm.statedDeadline ?? comm.computedDeadline;
+      if (!deadline || deadline >= today) continue;
+
+      // Check if a subsequent item is claims-paid
+      const subsequentPaid = comms.slice(i + 1).some(
+        s => s.responseClassification === 'claims-paid',
+      );
+      if (subsequentPaid) continue;
+
+      // Found a missed deadline — surface it
+      setPendingResponseAction({
+        classification: 'agreed-with-deadline',
+        action: 'set-deadline',
+        phase: 'friendly', // will be overridden by actual phase detection on next reply
+        statedDeadline: deadline,
+        computedDeadline: null,
+        hasMissedDeadlines: true,
+        isFirstOffence: false,
+        confidence: 1,
+        reasoning: 'Deadline passed without payment confirmation.',
+        userMessage: `The debtor agreed to pay by ${new Date(deadline).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} but no payment has been confirmed. Consider escalating or regenerating the outreach plan.`,
+        guidanceNotes: '',
+      });
+      break; // only surface the first missed deadline
+    }
+  }, [loading, comms, pendingResponseAction]);
+
   useEffect(() => {
     if (!hasProcessingDocuments) return;
 
@@ -841,6 +877,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                           }
                         }}
                         onCancelLegal={() => setPendingResponseAction(null)}
+                        onDismiss={() => setPendingResponseAction(null)}
                       />
                     </div>
                   )}

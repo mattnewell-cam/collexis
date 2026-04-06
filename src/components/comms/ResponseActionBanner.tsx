@@ -10,6 +10,7 @@ interface Props {
   onPaymentNotReceived: () => void;
   onConfirmLegal?: () => void;
   onCancelLegal?: () => void;
+  onDismiss: () => void;
   loading?: boolean;
 }
 
@@ -31,6 +32,7 @@ export default function ResponseActionBanner({
   onPaymentNotReceived,
   onConfirmLegal,
   onCancelLegal,
+  onDismiss,
   loading = false,
 }: Props) {
   const label = classificationLabels[action.classification] ?? action.classification;
@@ -91,6 +93,16 @@ export default function ResponseActionBanner({
             </span>
           )}
         </div>
+        <button
+          onClick={onDismiss}
+          disabled={loading}
+          className="rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-200 hover:text-gray-600 disabled:opacity-60"
+          aria-label="Dismiss"
+        >
+          <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+          </svg>
+        </button>
       </div>
 
       <p className={`text-sm ${text}`}>{action.userMessage}</p>

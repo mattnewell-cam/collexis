@@ -543,14 +543,15 @@ def _handle_agreed_with_deadline(
 
     else:  # post-loa
         if not is_first:
-            # Repeat — state claim timeline, demand payment
+            # Repeat — state claim timeline, demand payment with a hard deadline
+            dl = _compute_working_day_deadline(today, 3)
             return (
                 "set-deadline",
                 "The debtor has made promises before. "
-                "We'll state the claim-filing timeline and demand payment.",
-                None,
-                "State the timeline for claim filing plainly. Tell the debtor to pay. "
-                "No negotiation — this is a final demand.",
+                f"We'll demand payment by {dl.strftime('%A %d %B')} and state the claim-filing timeline.",
+                dl.isoformat(),
+                "State the timeline for claim filing plainly. Tell the debtor to pay "
+                f"by {dl.strftime('%A %d %B')}. No negotiation — this is a final demand.",
             )
         if days_to_deadline is not None and days_to_deadline <= 30:
             return (
@@ -622,13 +623,14 @@ def _handle_agreed_without_deadline(
                 "Ask for a specific date. State the claim-filing timeline. Suggest "
                 f"{dl.strftime('%A %d %B')} as a deadline.",
             )
+        dl = _compute_working_day_deadline(today, 3)
         return (
             "set-deadline",
             "The debtor has made vague promises before. "
-            "We'll state the claim-filing timeline and demand payment.",
-            None,
-            "State the timeline for claim filing plainly. Tell the debtor to pay. "
-            "No further extensions.",
+            f"We'll demand payment by {dl.strftime('%A %d %B')} and state the claim-filing timeline.",
+            dl.isoformat(),
+            "State the timeline for claim filing plainly. Tell the debtor to pay "
+            f"by {dl.strftime('%A %d %B')}. No further extensions.",
         )
 
 

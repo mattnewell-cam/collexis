@@ -15,6 +15,10 @@ export type ApiTimelineItem = {
   short_description: string;
   details: string;
   linked_document_ids: string[];
+  response_classification: string | null;
+  response_action: string | null;
+  stated_deadline: string | null;
+  computed_deadline: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -45,6 +49,10 @@ export function mapApiTimelineItem(item: ApiTimelineItem): Communication {
     shortDescription: item.short_description,
     details: item.details,
     linkedDocumentIds: item.linked_document_ids,
+    responseClassification: (item.response_classification ?? undefined) as Communication['responseClassification'],
+    responseAction: (item.response_action ?? undefined) as Communication['responseAction'],
+    statedDeadline: item.stated_deadline,
+    computedDeadline: item.computed_deadline,
   };
 }
 

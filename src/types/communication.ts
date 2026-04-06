@@ -39,6 +39,10 @@ export interface Communication {
   shortDescription: string; // <10 words, displayed inline
   details: string; // free-text, can be lengthy
   linkedDocumentIds?: string[];
+  responseClassification?: DebtorResponseClassification;
+  responseAction?: DebtorResponseAction;
+  statedDeadline?: string | null;
+  computedDeadline?: string | null;
 }
 
 export type DebtorResponseClassification =
