@@ -18,6 +18,7 @@ from .config import Settings
 from .database import init_db
 from .extraction import SUPPORTED_EXTENSIONS, normalize_iso_date, process_document, summarize_job_intake
 from .inbound_email_job_inference import infer_inbound_email_job
+from .intake_chat import IntakeChatRequest, run_intake_chat
 from .logging_utils import (
     LOG_HEADER_ACTION_ID,
     LOG_HEADER_REQUEST_ID,
@@ -310,6 +311,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             confidence=confidence,
         )
         return InboundEmailJobInferenceResponse.model_validate(decision)
+
+    @app.post("/jobs/{job_id}/intake-chat")
+    def job_intake_chat(job_id: str, payload: IntakeChatRequest):
+        if payload.job_snapshot.id != job_id:
+            raise HTTPException(status_code=400, detail="Job snapshot does not match route job id.")
+        log_event(
+            logger,
+            logging.INFO,
+            "intake_chat.request",
+            job_id=job_id,
+            message_count=len(payload.messages),
+        )
+        result = run_intake_chat(
+            job_snapshot=payload.job_snapshot,
+            messages=payload.messages,
+            field_statuses=payload.field_statuses,
+            settings=app.state.settings,
+        )
+        return result.model_dump()
 
     @app.post("/jobs/{job_id}/outreach-plan/generate", response_model=list[OutreachPlanStepResponse])
     def generate_job_outreach_plan(

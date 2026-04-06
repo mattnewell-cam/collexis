@@ -23,9 +23,12 @@ import {
   updateTimelineItem,
 } from '@/lib/backendTimeline';
 import CommForm from './comms/CommForm';
+import IntakeChat from './comms/IntakeChat';
 import ResponseActionBanner from './comms/ResponseActionBanner';
 import Timeline from './comms/Timeline';
 import PostNowTimeline from './comms/PostNowTimeline';
+
+const intakeContextLabel = 'Intake context:';
 
 const deleteUndoWindowMs = 6000;
 const defaultHandoverDays = 14;
@@ -177,10 +180,13 @@ export default function JobCommsView({ job }: { job: Job }) {
   const [handoverDaysInput, setHandoverDaysInput] = useState(String(job.handoverDays ?? defaultHandoverDays));
   const [planToneInput, setPlanToneInput] = useState(initialPlannerSections.toneGuidance);
   const [planChangeRequestsInput, setPlanChangeRequestsInput] = useState(initialPlannerSections.changeRequests);
+  const [intakeChatOpen, setIntakeChatOpen] = useState(false);
+  const [intakeJustCompleted, setIntakeJustCompleted] = useState(false);
   const deleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobIdRef = useRef(job.id);
 
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
+  const hasCompletedIntake = jobState.contextInstructions.includes(intakeContextLabel);
   const hasGeneratedPlan = postNowSteps.length > 0;
   const hasPhoneContact = jobState.phones.some(phone => phone.trim().length > 0);
   const hasPlannerNoteInputs = Boolean(planToneInput.trim() || planChangeRequestsInput.trim());
@@ -536,11 +542,45 @@ export default function JobCommsView({ job }: { job: Job }) {
 
   const requestPlanGeneration = useCallback((intent: 'generate' | 'regenerate' | 'revise') => {
     if (planGenerating) return;
+    // First-time generate and intake not done yet: show intake chat
+    if (intent === 'generate' && !hasCompletedIntake && !hasGeneratedPlan) {
+      setIntakeChatOpen(true);
+      return;
+    }
     setPlanConfirmState({
       intent,
       missingPhone: !hasPhoneContact,
     });
-  }, [hasPhoneContact, planGenerating]);
+  }, [hasCompletedIntake, hasGeneratedPlan, hasPhoneContact, planGenerating]);
+
+  const handleIntakeComplete = useCallback(async (contextSummary: string) => {
+    setIntakeChatOpen(false);
+
+    // Save the intake context to the job's contextInstructions
+    if (contextSummary.trim()) {
+      const intakeSection = `${intakeContextLabel}\n${contextSummary.trim()}`;
+      const existingWithoutIntake = jobState.contextInstructions.includes(intakeContextLabel)
+        ? jobState.contextInstructions.slice(0, jobState.contextInstructions.indexOf(intakeContextLabel)).trim()
+        : jobState.contextInstructions.trim();
+      const nextInstructions = [existingWithoutIntake, intakeSection].filter(Boolean).join('\n\n');
+      try {
+        await persistJobPatch({ contextInstructions: nextInstructions });
+      } catch {
+        setPageError('Could not save intake context.');
+        return;
+      }
+    }
+
+    // Show green completion text, then auto-trigger plan generation
+    setIntakeJustCompleted(true);
+    setTimeout(() => {
+      setIntakeJustCompleted(false);
+      setPlanConfirmState({
+        intent: 'generate',
+        missingPhone: !hasPhoneContact,
+      });
+    }, 1500);
+  }, [jobState, persistJobPatch, hasPhoneContact]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -734,6 +774,11 @@ export default function JobCommsView({ job }: { job: Job }) {
                               : 'Generate Plan'}
                           </button>
                         </div>
+                        {intakeJustCompleted ? (
+                          <p className="mt-3 text-sm font-medium text-emerald-600">
+                            Additional info complete — generating plan...
+                          </p>
+                        ) : null}
                       </div>
                       {hasGeneratedPlan && hasPlannerNoteInputs ? (
                         <p className="mt-3 text-sm text-gray-500">
@@ -1062,6 +1107,40 @@ export default function JobCommsView({ job }: { job: Job }) {
                     : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {intakeChatOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/35"
+            aria-label="Close intake chat"
+            onClick={() => setIntakeChatOpen(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="intake-chat-title"
+            className="relative flex w-full max-w-lg flex-col rounded-3xl border border-teal-100 bg-white p-6 shadow-[0_24px_80px_-32px_rgba(15,23,42,0.45)]"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-50 text-[#1e9bb8]">
+              <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            </div>
+            <h2 id="intake-chat-title" className="mt-4 text-lg font-semibold text-gray-900">
+              A few quick questions
+            </h2>
+            <p className="mt-1 mb-4 text-sm text-gray-500">
+              Help Collexis tailor the outreach plan to this case.
+            </p>
+            <IntakeChat
+              job={jobState}
+              onComplete={(summary) => { void handleIntakeComplete(summary); }}
+              onCancel={() => setIntakeChatOpen(false)}
+            />
           </div>
         </div>
       ) : null}
