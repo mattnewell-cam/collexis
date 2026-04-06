@@ -24,7 +24,11 @@ import { fileURLToPath } from 'url';
 // ---------------------------------------------------------------------------
 
 const __dirname       = path.dirname(fileURLToPath(import.meta.url));
-const PROFILE_DIR     = path.join(__dirname, '..', '.playwright-profile');
+const PROFILE_DIR     = process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR
+  ? (path.isAbsolute(process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR)
+      ? process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR
+      : path.resolve(__dirname, '..', process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR))
+  : path.join(__dirname, '..', 'runtime', 'playwright', 'whatsapp-profile');
 const WA_LOAD_TIMEOUT = 90_000;
 const CONFIRM_TIMEOUT = 10_000;
 

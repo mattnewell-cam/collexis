@@ -13,7 +13,7 @@
 import path from 'path';
 import type { BrowserContext, Page } from 'playwright';
 
-const PROFILE_DIR     = path.join(process.cwd(), '.playwright-profile');
+const PROFILE_DIR     = path.join(process.cwd(), 'runtime', 'playwright', 'whatsapp-profile');
 const WA_LOAD_TIMEOUT = 90_000;
 const CONFIRM_TIMEOUT = 10_000;
 

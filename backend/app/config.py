@@ -9,11 +9,19 @@ from dotenv import load_dotenv
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_LOCAL_PATH = REPO_ROOT / ".env.local"
+DEFAULT_DATA_DIR = Path("runtime/backend-data/default")
 
 
 def load_local_env() -> None:
     if ENV_LOCAL_PATH.exists():
         load_dotenv(ENV_LOCAL_PATH, override=False)
+
+
+def resolve_repo_path(value: str | Path) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
 
 
 @dataclass(frozen=True)
@@ -35,7 +43,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_local_env()
-        data_dir = Path(os.getenv("COLLEXIS_DATA_DIR", "backend/.data")).resolve()
+        data_dir = resolve_repo_path(os.getenv("COLLEXIS_DATA_DIR", str(DEFAULT_DATA_DIR)))
         return cls(
             data_dir=data_dir,
             database_path=data_dir / "documents.sqlite3",

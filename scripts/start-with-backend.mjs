@@ -1,14 +1,27 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import process from 'node:process';
 
 const repoRoot = process.cwd();
-const venvDir = join(repoRoot, '.collexis-runtime-venv');
 const nextBin = join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
+const runtimeRoot = join(repoRoot, 'runtime');
+const defaultVenvDir = join(runtimeRoot, 'venvs', 'collexis');
+const defaultPycacheDir = join(runtimeRoot, 'pycache');
+
+function resolveRepoPath(value, fallback) {
+  if (!value) return fallback;
+  return isAbsolute(value) ? value : resolve(repoRoot, value);
+}
+
+const venvDir = resolveRepoPath(process.env.COLLEXIS_RUNTIME_VENV_DIR, defaultVenvDir);
 const pythonExecutable = process.platform === 'win32'
   ? join(venvDir, 'Scripts', 'python.exe')
   : join(venvDir, 'bin', 'python');
+const pythonEnv = {
+  ...process.env,
+  PYTHONPYCACHEPREFIX: process.env.PYTHONPYCACHEPREFIX ?? resolveRepoPath(process.env.COLLEXIS_PYTHON_PYCACHE_DIR, defaultPycacheDir),
+};
 
 if (!existsSync(pythonExecutable)) {
   console.error('Python runtime is not prepared. Run the project build first so the backend virtualenv is created.');
@@ -54,7 +67,7 @@ const backendProcess = spawn(
   {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: process.env,
+    env: pythonEnv,
   },
 );
 

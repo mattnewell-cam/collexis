@@ -1,11 +1,19 @@
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 
 const repoRoot = process.cwd();
-const venvDir = join(repoRoot, '.collexis-runtime-venv');
 const nextBin = join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
+const runtimeRoot = join(repoRoot, 'runtime');
+const defaultVenvDir = join(runtimeRoot, 'venvs', 'collexis');
+
+function resolveRepoPath(value, fallback) {
+  if (!value) return fallback;
+  return isAbsolute(value) ? value : resolve(repoRoot, value);
+}
+
+const venvDir = resolveRepoPath(process.env.COLLEXIS_RUNTIME_VENV_DIR, defaultVenvDir);
 
 function isWindows() {
   return process.platform === 'win32';

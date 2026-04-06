@@ -16,6 +16,9 @@
 ### UI
 
 
+### Runtime
+- Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
+
 ### Comms channels
 - Intend to eventually have email, call, SMS, whatsapp and letters
   - Email: working, but breaks on Pembroke wifi. **If not working, switch to hotspot.**

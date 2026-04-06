@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const documentBackendUrl = "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
+  distDir: 'runtime/next',
+
   // Playwright is a native Node module — prevent Next.js from bundling it
   serverExternalPackages: ['playwright', 'playwright-core'],
 
