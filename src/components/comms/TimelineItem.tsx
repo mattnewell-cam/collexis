@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Communication } from '@/types/communication';
 import { DocumentRecord } from '@/types/document';
 import { parseCommunicationDate } from '@/lib/communicationDates';
-import { getCategoryDef, getSenderLabel, getSubtypeLabel } from './categoryConfig';
+import { getCategoryDef, getRecipientLabel, getSenderLabel, getSubtypeLabel } from './categoryConfig';
 
 interface Props {
   comm: Communication;
@@ -150,6 +150,11 @@ export default function TimelineItem({
                 {comm.sender && (
                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs text-gray-500 bg-gray-100">
                     {getSenderLabel(comm.sender)}
+                  </span>
+                )}
+                {comm.recipient && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs text-gray-500 bg-gray-100">
+                    {getRecipientLabel(comm.recipient)}
                   </span>
                 )}
               </div>

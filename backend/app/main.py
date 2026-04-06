@@ -30,8 +30,14 @@ from .logging_utils import (
 from .outreach_drafting import ensure_outreach_plan_drafts
 from .outreach_planning import generate_outreach_plan
 from .repository import DocumentRepository
+from .response_classification import (
+    classify_debtor_response,
+    determine_response_action,
+    offer_payment_plan,
+)
 from .scheduled_outreach import SchedulerMonitor, start_scheduler_thread
 from .schemas import (
+    DebtorResponseActionResult,
     DocumentResponse,
     DocumentUpdate,
     InboundEmailJobInferenceRequest,
@@ -389,12 +395,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             body_length=len(reply_body),
         )
 
+        # Classify the debtor response before recording
+        classification_result = classify_debtor_response(
+            reply_body=reply_body,
+            reply_subject=reply_subject,
+            settings=app.state.settings,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.classified",
+            job_id=job_id,
+            classification=classification_result.classification,
+            confidence=classification_result.confidence,
+        )
+
+        # Load timeline to check for missed deadlines
+        existing_timeline = repository.list_timeline_for_job(job_id)
+
+        # Determine the action to take
+        action_result = determine_response_action(
+            classification_result=classification_result,
+            job_snapshot=payload.job_snapshot,
+            timeline_items=existing_timeline,
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "inbound_email.reply.action_determined",
+            job_id=job_id,
+            classification=action_result.classification,
+            action=action_result.action,
+            has_missed_deadlines=action_result.has_missed_deadlines,
+        )
+
         headline_source = from_name or from_email or "debtor"
         timeline_item = repository.create_timeline_item(
             job_id=job_id,
             category="conversation",
             subtype="email",
             sender=None,
+            recipient="collexis",
             date=received_at,
             short_description=f"Email reply from {headline_source}",
             details="\n".join(
@@ -408,6 +449,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ]
                 if part
             ),
+            response_classification=action_result.classification,
+            response_action=action_result.action,
         )
         log_event(
             logger,
@@ -424,50 +467,59 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for document in repository.list_for_job(job_id)
             if str(document.get("status")) == "ready"
         ]
-        log_event(
-            logger,
-            logging.INFO,
-            "inbound_email.reply.replan_inputs_loaded",
-            job_id=job_id,
-            timeline_item_count=len(timeline_items),
-            ready_document_count=len(ready_documents),
-        )
-        generator: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_generator
-        planned_steps = generator(
-            job_snapshot=payload.job_snapshot,
-            timeline_items=timeline_items,
-            documents=ready_documents,
-            incoming_reply_context=payload.reply,
-            settings=app.state.settings,
-        )
-        stored_steps = repository.replace_outreach_plan_steps(
-            job_id,
-            steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
-        )
-        created_draft_count = create_initial_outreach_plan_drafts(
-            repository=repository,
-            job_id=job_id,
-            job_snapshot=payload.job_snapshot,
-            timeline_items=timeline_items,
-            ready_documents=ready_documents,
-            settings=app.state.settings,
-            draft_ensurer=app.state.outreach_plan_draft_ensurer,
-        )
-        log_event(
-            logger,
-            logging.INFO,
-            "inbound_email.reply.replan_persisted",
-            job_id=job_id,
-            stored_step_count=len(stored_steps),
-            created_draft_count=created_draft_count,
-        )
+
+        # Only replan if the action calls for it (not for actions that need user input first)
+        plan_steps_response: list[dict[str, object]] = []
+        should_replan = action_result.action in ("replan", "set-deadline")
+
+        if should_replan:
+            log_event(
+                logger,
+                logging.INFO,
+                "inbound_email.reply.replan_inputs_loaded",
+                job_id=job_id,
+                timeline_item_count=len(timeline_items),
+                ready_document_count=len(ready_documents),
+            )
+            generator: Callable[..., list[dict[str, object]]] = app.state.outreach_plan_generator
+            planned_steps = generator(
+                job_snapshot=payload.job_snapshot,
+                timeline_items=timeline_items,
+                documents=ready_documents,
+                incoming_reply_context=payload.reply,
+                settings=app.state.settings,
+            )
+            stored_steps = repository.replace_outreach_plan_steps(
+                job_id,
+                steps=enrich_planned_steps(planned_steps, recipient_emails=payload.job_snapshot.emails),
+            )
+            created_draft_count = create_initial_outreach_plan_drafts(
+                repository=repository,
+                job_id=job_id,
+                job_snapshot=payload.job_snapshot,
+                timeline_items=timeline_items,
+                ready_documents=ready_documents,
+                settings=app.state.settings,
+                draft_ensurer=app.state.outreach_plan_draft_ensurer,
+            )
+            log_event(
+                logger,
+                logging.INFO,
+                "inbound_email.reply.replan_persisted",
+                job_id=job_id,
+                stored_step_count=len(stored_steps),
+                created_draft_count=created_draft_count,
+            )
+
+        plan_steps_response = [
+            OutreachPlanStepResponse.model_validate(step).model_dump(mode="json")
+            for step in repository.list_outreach_plan_steps_with_drafts(job_id)
+        ]
 
         return {
             "timeline_item": TimelineItemResponse.model_validate(timeline_item).model_dump(mode="json"),
-            "plan_steps": [
-                OutreachPlanStepResponse.model_validate(step).model_dump(mode="json")
-                for step in repository.list_outreach_plan_steps_with_drafts(job_id)
-            ],
+            "plan_steps": plan_steps_response,
+            "response_action": action_result.model_dump(mode="json"),
         }
 
     @app.post("/jobs/{job_id}/outreach-plan/drafts/ensure", response_model=list[OutreachPlanStepResponse])

@@ -83,9 +83,12 @@ def row_to_timeline_item(row: dict[str, Any]) -> dict[str, Any]:
         "category": row["category"],
         "subtype": normalize_sms_channel(row.get("subtype")),
         "sender": row.get("sender"),
+        "recipient": row.get("recipient"),
         "date": row["date"],
         "short_description": row["short_description"],
         "details": row.get("details") or "",
+        "response_classification": row.get("response_classification"),
+        "response_action": row.get("response_action"),
         "created_at": parse_datetime(row["created_at"]),
         "updated_at": parse_datetime(row["updated_at"]),
     }
@@ -558,6 +561,9 @@ class SupabaseDocumentRepository:
         date: str,
         short_description: str,
         details: str,
+        recipient: str | None = None,
+        response_classification: str | None = None,
+        response_action: str | None = None,
         timeline_item_id: str | None = None,
         created_at: str | None = None,
         updated_at: str | None = None,
@@ -570,9 +576,12 @@ class SupabaseDocumentRepository:
             "category": category,
             "subtype": normalize_sms_channel(subtype),
             "sender": sender,
+            "recipient": recipient,
             "date": date,
             "short_description": short_description,
             "details": details,
+            "response_classification": response_classification,
+            "response_action": response_action,
             "created_at": now,
             "updated_at": updated_at or now,
         }
@@ -588,7 +597,7 @@ class SupabaseDocumentRepository:
                 raise KeyError(timeline_item_id)
             return timeline_item
 
-        allowed = {"category", "subtype", "sender", "date", "short_description", "details"}
+        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action"}
         invalid = set(fields) - allowed
         if invalid:
             raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")
