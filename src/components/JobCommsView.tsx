@@ -295,18 +295,18 @@ export default function JobCommsView({ job }: { job: Job }) {
       );
       if (subsequentPaid) continue;
 
-      // Found a missed deadline — surface it
+      // Found a missed deadline — ask the user if payment was received
       setPendingResponseAction({
         classification: 'agreed-with-deadline',
-        action: 'set-deadline',
-        phase: 'friendly', // will be overridden by actual phase detection on next reply
+        action: 'await-payment-confirmation',
+        phase: 'friendly',
         statedDeadline: deadline,
         computedDeadline: null,
-        hasMissedDeadlines: true,
-        isFirstOffence: false,
+        hasMissedDeadlines: false,
+        isFirstOffence: true,
         confidence: 1,
         reasoning: 'Deadline passed without payment confirmation.',
-        userMessage: `The debtor agreed to pay by ${new Date(deadline).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} but no payment has been confirmed. Consider escalating or regenerating the outreach plan.`,
+        userMessage: `The debtor agreed to pay by ${new Date(deadline).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}. Has the payment been received?`,
         guidanceNotes: '',
       });
       break; // only surface the first missed deadline
