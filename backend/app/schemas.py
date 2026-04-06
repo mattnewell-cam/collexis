@@ -152,6 +152,26 @@ class TimelineItemUpdate(BaseModel):
     details: str | None = None
 
 
+class TimelineCommunicationDraft(BaseModel):
+    category: TimelineCategory
+    subtype: TimelineSubtype | None = None
+    sender: TimelineSender | None = None
+    recipient: TimelineRecipient | None = None
+    date: str
+    short_description: str
+    details: str = ""
+
+
+class WhatsAppSendRequest(BaseModel):
+    recipients: list[str] = Field(default_factory=list)
+    communication: TimelineCommunicationDraft
+
+
+class WhatsAppSendResponse(BaseModel):
+    timeline_item: TimelineItemResponse
+    message_ids: list[str | None] = Field(default_factory=list)
+
+
 class JobDeleteResponse(BaseModel):
     job_id: str
     deleted_document_count: int

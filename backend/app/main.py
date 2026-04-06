@@ -51,10 +51,13 @@ from .schemas import (
     OutreachPlanStepResponse,
     OutreachPlanStepDraftResponse,
     ProcessingProfile,
+    WhatsAppSendRequest,
+    WhatsAppSendResponse,
     TimelineItemCreate,
     TimelineItemResponse,
     TimelineItemUpdate,
 )
+from .whatsapp_sender import playwright_whatsapp_configuration_error, send_playwright_whatsapp_messages
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +170,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.outreach_plan_generator = generate_outreach_plan
     app.state.outreach_plan_draft_ensurer = ensure_outreach_plan_drafts
     app.state.inbound_email_job_inferer = infer_inbound_email_job
+    app.state.whatsapp_sender = send_playwright_whatsapp_messages
 
     app.add_middleware(
         CORSMiddleware,
@@ -660,11 +664,79 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             category=payload.category,
             subtype=payload.subtype,
             sender=payload.sender,
+            recipient=payload.recipient,
             date=normalize_iso_date(payload.date) or payload.date,
             short_description=payload.short_description.strip(),
             details=payload.details,
         )
         return TimelineItemResponse.model_validate(created)
+
+    @app.post("/jobs/{job_id}/send-whatsapp", response_model=WhatsAppSendResponse)
+    def send_job_whatsapp(job_id: str, payload: WhatsAppSendRequest) -> WhatsAppSendResponse:
+        configuration_error = playwright_whatsapp_configuration_error()
+        if configuration_error is not None:
+            raise HTTPException(status_code=500, detail=configuration_error)
+
+        communication = payload.communication
+        recipients = list(dict.fromkeys(recipient.strip() for recipient in payload.recipients if recipient.strip()))
+        if not recipients:
+            raise HTTPException(status_code=400, detail="At least one recipient phone number is required.")
+        if communication.subtype != "whatsapp":
+            raise HTTPException(status_code=400, detail="Only WhatsApp communications can be sent.")
+        if not communication.short_description.strip():
+            raise HTTPException(status_code=400, detail="A short description is required.")
+        if not communication.details.strip():
+            raise HTTPException(status_code=400, detail="WhatsApp body is required.")
+
+        log_event(
+            logger,
+            logging.INFO,
+            "communications.send_whatsapp.requested",
+            job_id=job_id,
+            recipient_count=len(recipients),
+        )
+
+        sender: Callable[..., list[str | None]] = app.state.whatsapp_sender
+        try:
+            message_ids = sender(
+                recipients=recipients,
+                text_body=communication.details.strip(),
+                settings=app.state.settings,
+            )
+        except RuntimeError as exc:
+            log_event(
+                logger,
+                logging.ERROR,
+                "communications.send_whatsapp.failed",
+                job_id=job_id,
+                recipient_count=len(recipients),
+                error=exc,
+            )
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        repository = DocumentRepository(app.state.settings)
+        timeline_item = repository.create_timeline_item(
+            job_id=job_id,
+            category=communication.category,
+            subtype=communication.subtype,
+            sender=communication.sender,
+            recipient=communication.recipient,
+            date=normalize_iso_date(communication.date) or communication.date,
+            short_description=communication.short_description.strip(),
+            details=f"To: {', '.join(recipients)}\n\n{communication.details.strip()}",
+        )
+        log_event(
+            logger,
+            logging.INFO,
+            "communications.send_whatsapp.completed",
+            job_id=job_id,
+            recipient_count=len(recipients),
+            timeline_item_id=timeline_item["id"],
+        )
+        return WhatsAppSendResponse(
+            timeline_item=TimelineItemResponse.model_validate(timeline_item),
+            message_ids=message_ids,
+        )
 
     @app.patch("/documents/{document_id}", response_model=DocumentResponse)
     def update_document(document_id: str, payload: DocumentUpdate) -> DocumentResponse:

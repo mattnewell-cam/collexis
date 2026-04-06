@@ -22,7 +22,9 @@
 ### Comms channels
 - Intend to eventually have email, call, SMS, whatsapp and letters
   - Email: working, but breaks on Pembroke wifi. **If not working, switch to hotspot.**
+  - WhatsApp send execution now runs through the Python backend; the Next route just authenticates, forwards, and audits so Playwright stays out of the Next build.
   - WhatsApp: being fucking retarded so not yet working. Probably need to just buy a mobile number tbh. So again waiting on Telnyx
   - SMS: not yet working as Telnyx info under review
   - Calls: needs Telnyx and a bunch more wiring for voice AI
   - Letters: handle later
+

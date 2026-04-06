@@ -16,3 +16,4 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `supabase_migration_history_repair.md` - Production Supabase migration history was repaired to match local timestamps, and the missing outreach scheduler columns were applied.
 - `local_first_agent_workflow.md` - Agent instructions now default to `http://localhost:3000`, commit automatically, and only push when explicitly asked.
 - `runtime_artifact_layout.md` - Local generated artifacts now default into `runtime/`, including backend data, Next output, pytest cache, tsbuildinfo, the runtime venv, and Playwright profile state.
+- `whatsapp_backend_boundary.md` - WhatsApp sending now executes in the Python backend, with Next narrowed to auth, forwarding, and audit work.

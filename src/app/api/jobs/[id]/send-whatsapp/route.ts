@@ -5,29 +5,12 @@ import { loggedFetch } from '@/lib/logging/fetch';
 import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
-import {
-  sendPlaywrightWhatsApp,
-  playwrightWhatsAppConfigurationError,
-} from '@/lib/playwrightWhatsApp';
 import type { Communication } from '@/types/communication';
+import type { ApiTimelineItem } from '@/lib/backendTimeline';
 
 type SendWhatsAppPayload = {
   recipients?: unknown;
   communication?: unknown;
-};
-
-type TimelineCreateResponse = {
-  id: string;
-  job_id: string;
-  category: Communication['category'];
-  subtype: Communication['subtype'] | null;
-  sender: Communication['sender'] | null;
-  date: string;
-  short_description: string;
-  details: string;
-  linked_document_ids: string[];
-  created_at: string;
-  updated_at: string;
 };
 
 function normalizePhoneNumber(value: string) {
@@ -103,44 +86,11 @@ function normalizeCommunication(value: unknown): Communication | null {
   };
 }
 
-async function createTimelineItem(jobId: string, communication: Communication, trace?: { requestId?: string; actionId?: string; sessionId?: string }) {
-  const response = await loggedFetch(new URL(`/jobs/${jobId}/timeline-items`, documentBackendOrigin()), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      category: communication.category,
-      subtype: communication.subtype ?? null,
-      sender: communication.sender ?? null,
-      date: communication.date,
-      short_description: communication.shortDescription.trim(),
-      details: communication.details,
-    }),
-    cache: 'no-store',
-  }, {
-    name: 'timeline.create_from_whatsapp_send',
-    context: { jobId, category: communication.category, subtype: communication.subtype ?? null },
-    trace,
-    source: 'next-api',
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { detail?: string; error?: string } | null;
-    throw new Error(payload?.detail ?? payload?.error ?? 'The WhatsApp sent, but it could not be recorded in the timeline.');
-  }
-
-  return await response.json() as TimelineCreateResponse;
-}
-
 export const POST = withRouteLogging('communications.send_whatsapp', async (
   request: Request,
   { params }: { params: Promise<{ id: string }> },
   log,
 ) => {
-  const configurationError = playwrightWhatsAppConfigurationError();
-  if (configurationError) {
-    return NextResponse.json({ error: configurationError }, { status: 500 });
-  }
-
   const { id } = await params;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -187,17 +137,42 @@ export const POST = withRouteLogging('communications.send_whatsapp', async (
       jobId: id,
       recipientCount: recipients.length,
     });
-    const deliveryResponses = await Promise.all(
-      recipients.map(to => sendPlaywrightWhatsApp({
-        to,
-        textBody: communication.details.trim(),
-      })),
-    );
+    const backendResponse = await loggedFetch(new URL(`/jobs/${id}/send-whatsapp`, documentBackendOrigin()), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipients,
+        communication: {
+          category: communication.category,
+          subtype: communication.subtype ?? null,
+          sender: communication.sender ?? null,
+          recipient: communication.recipient ?? null,
+          date: communication.date,
+          short_description: communication.shortDescription.trim(),
+          details: communication.details,
+        },
+      }),
+      cache: 'no-store',
+    }, {
+      name: 'communications.send_whatsapp_backend',
+      context: { jobId: id, recipientCount: recipients.length },
+      trace: log.trace,
+      source: 'next-api',
+    });
 
-    const timelineItem = await createTimelineItem(id, {
-      ...communication,
-      details: `To: ${recipients.join(', ')}\n\n${communication.details.trim()}`,
-    }, log.trace);
+    const backendPayload = await backendResponse.json().catch(() => null) as {
+      detail?: string;
+      error?: string;
+      timeline_item?: ApiTimelineItem;
+      message_ids?: Array<string | null>;
+    } | null;
+
+    if (!backendResponse.ok || !backendPayload?.timeline_item) {
+      const message = backendPayload?.detail ?? backendPayload?.error ?? 'Could not send WhatsApp.';
+      return NextResponse.json({ error: message }, { status: backendResponse.status || 502 });
+    }
+
+    const timelineItem = backendPayload.timeline_item;
 
     try {
       await recordAuditEvent({
@@ -224,7 +199,7 @@ export const POST = withRouteLogging('communications.send_whatsapp', async (
 
     return NextResponse.json({
       timelineItem,
-      messageIds: deliveryResponses.map(result => result.messageId),
+      messageIds: backendPayload.message_ids ?? [],
     });
   } catch (error) {
     log.error('communications.send_whatsapp.failed', {
