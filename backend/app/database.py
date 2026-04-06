@@ -37,6 +37,11 @@ CREATE TABLE IF NOT EXISTS timeline_items (
     date TEXT NOT NULL,
     short_description TEXT NOT NULL,
     details TEXT NOT NULL DEFAULT '',
+    response_classification TEXT NULL,
+    response_action TEXT NULL,
+    recipient TEXT NULL,
+    stated_deadline TEXT NULL,
+    computed_deadline TEXT NULL,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );

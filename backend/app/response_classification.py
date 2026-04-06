@@ -157,22 +157,42 @@ def _compute_working_day_deadline(from_date: date, working_days: int = 3) -> dat
 
 
 def _has_missed_deadlines(timeline_items: list[dict[str, object]]) -> bool:
-    """Check if the debtor has previously agreed to pay by a date and missed it."""
-    missed_keywords = (
-        "missed deadline",
-        "deadline passed",
-        "failed to pay",
-        "payment not received",
-        "broken promise",
-        "did not pay",
-        "didn't pay",
-    )
-    for item in timeline_items:
-        details = str(item.get("details", "")).lower()
-        short_desc = str(item.get("short_description", "")).lower()
-        haystack = f"{short_desc} {details}"
-        if any(kw in haystack for kw in missed_keywords):
+    """Check if the debtor has previously agreed to pay by a date and missed it.
+
+    Uses structured deadline data stored on timeline items rather than keyword
+    matching.  A deadline is "missed" when:
+      1. The item has a response_classification of agreed-with-deadline, AND
+      2. It carries a stated_deadline or computed_deadline that is in the past,
+         AND
+      3. No subsequent item is classified as claims-paid.
+    """
+    today = _now_london().date()
+    promise_classifications = {"agreed-with-deadline"}
+
+    for idx, item in enumerate(timeline_items):
+        rc = item.get("response_classification", "")
+        if rc not in promise_classifications:
+            continue
+
+        # Check if a deadline was recorded and has passed
+        deadline_str = item.get("stated_deadline") or item.get("computed_deadline")
+        if not deadline_str:
+            continue
+        try:
+            deadline_date = date.fromisoformat(str(deadline_str))
+        except (ValueError, TypeError):
+            continue
+        if deadline_date >= today:
+            continue  # deadline hasn't passed yet
+
+        # Deadline is in the past — check if a later item says they paid
+        subsequent_paid = any(
+            subsequent.get("response_classification") == "claims-paid"
+            for subsequent in timeline_items[idx + 1:]
+        )
+        if not subsequent_paid:
             return True
+
     return False
 
 

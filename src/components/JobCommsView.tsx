@@ -727,21 +727,120 @@ export default function JobCommsView({ job }: { job: Job }) {
                       <ResponseActionBanner
                         action={pendingResponseAction}
                         loading={responseActionLoading}
-                        onConfirmHandover={() => {
+                        onConfirmHandover={async () => {
                           setResponseActionLoading(true);
-                          // Set handover to now and regenerate plan with legal steps
-                          const updated = { ...jobState, plannedHandoverAt: new Date().toISOString() };
-                          setJobState(updated);
-                          setPendingResponseAction(null);
-                          setResponseActionLoading(false);
+                          try {
+                            await runClientAction('response_action.confirm_handover', async trace => {
+                              const now = new Date().toISOString();
+                              const updatedJob = await persistJobPatch({ plannedHandoverAt: now }, trace);
+                              await createTimelineItem(jobState.id, {
+                                id: '',
+                                jobId: jobState.id,
+                                category: 'other',
+                                date: now.split('T')[0],
+                                shortDescription: 'Handover confirmed — debtor can\'t afford full amount',
+                                details: 'Handover triggered from debtor response action. Negotiation phase begins.',
+                                linkedDocumentIds: [],
+                              }, trace);
+                              const nextComms = await fetchTimelineItems(jobState.id, trace);
+                              setComms(nextComms);
+                              const generatedPlan = await generateOutreachPlan(updatedJob, trace);
+                              if (activeJobIdRef.current !== jobState.id) return;
+                              setPostNowSteps(generatedPlan);
+                            }, { jobId: jobState.id, action: 'confirm_handover' });
+                            setPendingResponseAction(null);
+                            setPageError(null);
+                          } catch (error) {
+                            setPageError(errorMessage(error, 'Could not confirm handover.'));
+                          } finally {
+                            setResponseActionLoading(false);
+                          }
                         }}
                         onCancelHandover={() => setPendingResponseAction(null)}
-                        onConfirmPaymentReceived={() => {
-                          setPendingResponseAction(null);
+                        onConfirmPaymentReceived={async () => {
+                          setResponseActionLoading(true);
+                          try {
+                            await runClientAction('response_action.payment_received', async trace => {
+                              await createTimelineItem(jobState.id, {
+                                id: '',
+                                jobId: jobState.id,
+                                category: 'other',
+                                date: new Date().toISOString().split('T')[0],
+                                shortDescription: 'Payment confirmed as received',
+                                details: 'User confirmed payment was received after debtor claimed they had paid.',
+                                linkedDocumentIds: [],
+                              }, trace);
+                              const nextComms = await fetchTimelineItems(jobState.id, trace);
+                              setComms(nextComms);
+                            }, { jobId: jobState.id, action: 'payment_received' });
+                            setPendingResponseAction(null);
+                            setPageError(null);
+                          } catch (error) {
+                            setPageError(errorMessage(error, 'Could not record payment confirmation.'));
+                          } finally {
+                            setResponseActionLoading(false);
+                          }
                         }}
-                        onPaymentNotReceived={() => {
-                          setPendingResponseAction(null);
+                        onPaymentNotReceived={async () => {
+                          setResponseActionLoading(true);
+                          try {
+                            await runClientAction('response_action.payment_not_received', async trace => {
+                              await createTimelineItem(jobState.id, {
+                                id: '',
+                                jobId: jobState.id,
+                                category: 'other',
+                                date: new Date().toISOString().split('T')[0],
+                                shortDescription: 'Payment not received — debtor\'s claim was false',
+                                details: 'User confirmed payment was NOT received after debtor claimed they had paid. Outreach plan regenerated.',
+                                linkedDocumentIds: [],
+                              }, trace);
+                              const nextComms = await fetchTimelineItems(jobState.id, trace);
+                              setComms(nextComms);
+                              const generatedPlan = await generateOutreachPlan(jobState, trace);
+                              if (activeJobIdRef.current !== jobState.id) return;
+                              setPostNowSteps(generatedPlan);
+                            }, { jobId: jobState.id, action: 'payment_not_received' });
+                            setPendingResponseAction(null);
+                            setPageError(null);
+                          } catch (error) {
+                            setPageError(errorMessage(error, 'Could not record payment status.'));
+                          } finally {
+                            setResponseActionLoading(false);
+                          }
                         }}
+                        onConfirmLegal={async () => {
+                          setResponseActionLoading(true);
+                          try {
+                            await runClientAction('response_action.confirm_legal', async trace => {
+                              const isPostLoa = pendingResponseAction.phase === 'post-loa';
+                              await createTimelineItem(jobState.id, {
+                                id: '',
+                                jobId: jobState.id,
+                                category: 'other',
+                                date: new Date().toISOString().split('T')[0],
+                                shortDescription: isPostLoa
+                                  ? 'Legal proceedings confirmed to continue'
+                                  : 'Legal action approved',
+                                details: isPostLoa
+                                  ? 'User confirmed continuation of legal proceedings after debtor response.'
+                                  : 'User approved escalation to legal action after debtor response.',
+                                linkedDocumentIds: [],
+                              }, trace);
+                              const nextComms = await fetchTimelineItems(jobState.id, trace);
+                              setComms(nextComms);
+                              const generatedPlan = await generateOutreachPlan(jobState, trace);
+                              if (activeJobIdRef.current !== jobState.id) return;
+                              setPostNowSteps(generatedPlan);
+                            }, { jobId: jobState.id, action: 'confirm_legal' });
+                            setPendingResponseAction(null);
+                            setPageError(null);
+                          } catch (error) {
+                            setPageError(errorMessage(error, 'Could not confirm legal action.'));
+                          } finally {
+                            setResponseActionLoading(false);
+                          }
+                        }}
+                        onCancelLegal={() => setPendingResponseAction(null)}
                       />
                     </div>
                   )}

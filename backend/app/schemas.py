@@ -125,6 +125,8 @@ class TimelineItemResponse(BaseModel):
     details: str
     response_classification: DebtorResponseClassification | None = None
     response_action: DebtorResponseAction | None = None
+    stated_deadline: str | None = None
+    computed_deadline: str | None = None
     linked_document_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

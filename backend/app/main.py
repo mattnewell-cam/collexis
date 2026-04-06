@@ -451,6 +451,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
             response_classification=action_result.classification,
             response_action=action_result.action,
+            stated_deadline=action_result.stated_deadline,
+            computed_deadline=action_result.computed_deadline,
         )
         log_event(
             logger,

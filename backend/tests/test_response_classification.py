@@ -17,6 +17,7 @@ from backend.app.response_classification import (
     offer_payment_plan,
     _compute_working_day_deadline,
     _count_prior_promises,
+    _has_missed_deadlines,
 )
 from backend.app.schemas import (
     DebtorResponseClassificationResult,
@@ -198,6 +199,49 @@ class TestCountPriorPromises:
         assert _count_prior_promises(timeline) == 2
 
 
+class TestHasMissedDeadlines:
+    def test_empty_timeline(self):
+        assert _has_missed_deadlines([]) is False
+
+    def test_no_deadline_items(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "dispute", "stated_deadline": None, "computed_deadline": None},
+        ]) is False
+
+    def test_deadline_in_future(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "agreed-with-deadline", "stated_deadline": "2099-12-31", "computed_deadline": None},
+        ]) is False
+
+    def test_deadline_in_past_is_missed(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "agreed-with-deadline", "stated_deadline": "2024-01-01", "computed_deadline": None},
+        ]) is True
+
+    def test_uses_computed_deadline_as_fallback(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "agreed-with-deadline", "stated_deadline": None, "computed_deadline": "2024-01-01"},
+        ]) is True
+
+    def test_not_missed_if_subsequent_claims_paid(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "agreed-with-deadline", "stated_deadline": "2024-01-01", "computed_deadline": None},
+            {"response_classification": "claims-paid", "stated_deadline": None, "computed_deadline": None},
+        ]) is False
+
+    def test_missed_if_claims_paid_before_deadline(self):
+        """claims-paid before the deadline item doesn't count."""
+        assert _has_missed_deadlines([
+            {"response_classification": "claims-paid", "stated_deadline": None, "computed_deadline": None},
+            {"response_classification": "agreed-with-deadline", "stated_deadline": "2024-01-01", "computed_deadline": None},
+        ]) is True
+
+    def test_ignores_non_agreed_classifications(self):
+        assert _has_missed_deadlines([
+            {"response_classification": "cant-afford", "stated_deadline": "2024-01-01", "computed_deadline": None},
+        ]) is False
+
+
 class TestDetectPhase:
     def _make_job(self, planned_handover_at: str | None = None) -> JobSnapshot:
         return JobSnapshot(id="job-1", name="Test", planned_handover_at=planned_handover_at)
@@ -237,7 +281,13 @@ class TestDetermineResponseAction:
         )
 
     def _prior_promise_timeline(self) -> list[dict[str, object]]:
-        return [{"response_classification": "agreed-with-deadline", "short_description": "", "details": ""}]
+        return [{
+            "response_classification": "agreed-with-deadline",
+            "stated_deadline": "2026-01-01",
+            "computed_deadline": None,
+            "short_description": "",
+            "details": "",
+        }]
 
     # --- claims-paid ---
 

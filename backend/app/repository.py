@@ -67,6 +67,8 @@ def row_to_timeline_item(row: Any) -> dict[str, Any]:
         "details": row["details"],
         "response_classification": row["response_classification"] if "response_classification" in row.keys() else None,
         "response_action": row["response_action"] if "response_action" in row.keys() else None,
+        "stated_deadline": row["stated_deadline"] if "stated_deadline" in row.keys() else None,
+        "computed_deadline": row["computed_deadline"] if "computed_deadline" in row.keys() else None,
         "created_at": datetime.fromisoformat(row["created_at"]),
         "updated_at": datetime.fromisoformat(row["updated_at"]),
     }
@@ -318,6 +320,8 @@ class SQLiteDocumentRepository:
         recipient: str | None = None,
         response_classification: str | None = None,
         response_action: str | None = None,
+        stated_deadline: str | None = None,
+        computed_deadline: str | None = None,
         timeline_item_id: str | None = None,
         created_at: str | None = None,
         updated_at: str | None = None,
@@ -331,8 +335,9 @@ class SQLiteDocumentRepository:
                     id, job_id, category, subtype, sender, recipient, date,
                     short_description, details,
                     response_classification, response_action,
+                    stated_deadline, computed_deadline,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item_id,
@@ -346,6 +351,8 @@ class SQLiteDocumentRepository:
                     details,
                     response_classification,
                     response_action,
+                    stated_deadline,
+                    computed_deadline,
                     now,
                     updated_at or now,
                 ),
@@ -363,7 +370,7 @@ class SQLiteDocumentRepository:
                 raise KeyError(timeline_item_id)
             return timeline_item
 
-        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action"}
+        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action", "stated_deadline", "computed_deadline"}
         invalid = set(fields) - allowed
         if invalid:
             raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")

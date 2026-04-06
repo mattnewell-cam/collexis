@@ -89,6 +89,8 @@ def row_to_timeline_item(row: dict[str, Any]) -> dict[str, Any]:
         "details": row.get("details") or "",
         "response_classification": row.get("response_classification"),
         "response_action": row.get("response_action"),
+        "stated_deadline": row.get("stated_deadline"),
+        "computed_deadline": row.get("computed_deadline"),
         "created_at": parse_datetime(row["created_at"]),
         "updated_at": parse_datetime(row["updated_at"]),
     }
@@ -564,6 +566,8 @@ class SupabaseDocumentRepository:
         recipient: str | None = None,
         response_classification: str | None = None,
         response_action: str | None = None,
+        stated_deadline: str | None = None,
+        computed_deadline: str | None = None,
         timeline_item_id: str | None = None,
         created_at: str | None = None,
         updated_at: str | None = None,
@@ -582,6 +586,8 @@ class SupabaseDocumentRepository:
             "details": details,
             "response_classification": response_classification,
             "response_action": response_action,
+            "stated_deadline": stated_deadline,
+            "computed_deadline": computed_deadline,
             "created_at": now,
             "updated_at": updated_at or now,
         }
@@ -597,7 +603,7 @@ class SupabaseDocumentRepository:
                 raise KeyError(timeline_item_id)
             return timeline_item
 
-        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action"}
+        allowed = {"category", "subtype", "sender", "recipient", "date", "short_description", "details", "response_classification", "response_action", "stated_deadline", "computed_deadline"}
         invalid = set(fields) - allowed
         if invalid:
             raise ValueError(f"Unsupported fields: {', '.join(sorted(invalid))}")
