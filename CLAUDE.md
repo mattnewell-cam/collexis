@@ -34,7 +34,7 @@ The production site is `collexis.uk`, deployed automatically from the `main` bra
 
 ## Worktree Workflow
 
-When work in a worktree is complete, merge it cleanly into main: switch to main, merge the worktree branch (fast-forward if possible, otherwise a regular merge), then delete the worktree branch.
+When work in a worktree is complete, merge it into main immediately after committing — do not wait for the user to ask. Switch to the main repo directory (`/c/Users/matth/PycharmProjects/collexis`), checkout main, merge the worktree branch (fast-forward if possible, otherwise a regular merge), then remove the worktree and delete the branch.
 
 ## Process Cleanup
 
