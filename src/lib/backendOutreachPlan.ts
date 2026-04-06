@@ -32,12 +32,15 @@ type ApiOutreachPlanStep = {
 type ApiDebtorResponseActionResult = {
   classification: string;
   action: string;
+  phase?: string;
   stated_deadline: string | null;
   computed_deadline: string | null;
   has_missed_deadlines: boolean;
+  is_first_offence?: boolean;
   confidence: number;
   reasoning: string;
   user_message: string;
+  guidance_notes?: string;
 };
 
 type ApiInboundEmailReplyResponse = {
@@ -154,12 +157,15 @@ function mapApiResponseAction(raw: ApiDebtorResponseActionResult): DebtorRespons
   return {
     classification: raw.classification as DebtorResponseActionResult['classification'],
     action: raw.action as DebtorResponseActionResult['action'],
+    phase: (raw.phase ?? 'friendly') as DebtorResponseActionResult['phase'],
     statedDeadline: raw.stated_deadline,
     computedDeadline: raw.computed_deadline,
     hasMissedDeadlines: raw.has_missed_deadlines,
+    isFirstOffence: raw.is_first_offence ?? true,
     confidence: raw.confidence,
     reasoning: raw.reasoning,
     userMessage: raw.user_message,
+    guidanceNotes: raw.guidance_notes ?? '',
   };
 }
 

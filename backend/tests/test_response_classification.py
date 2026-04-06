@@ -13,14 +13,17 @@ from backend.app.config import Settings
 from backend.app.response_classification import (
     classify_debtor_response,
     determine_response_action,
+    detect_phase,
     offer_payment_plan,
     _compute_working_day_deadline,
+    _count_prior_promises,
 )
 from backend.app.schemas import (
     DebtorResponseClassificationResult,
     JobSnapshot,
 )
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 
 # ---------------------------------------------------------------------------
@@ -28,26 +31,38 @@ from datetime import date
 # ---------------------------------------------------------------------------
 
 SAMPLE_RESPONSES: list[dict[str, str]] = [
-    # --- refused-or-disputed ---
+    # --- dispute ---
     {
-        "id": "refuse-1",
-        "body": "I'm not paying this. The work was shoddy and I've already complained. You'll be hearing from my solicitor.",
-        "expected": "refused-or-disputed",
+        "id": "dispute-1",
+        "body": "The work was shoddy and I've already complained. The amount is wrong — you charged for work that was never completed.",
+        "expected": "dispute",
     },
     {
-        "id": "refuse-2",
-        "body": "This is ridiculous. I never agreed to pay this amount and I don't owe you anything. Stop contacting me.",
-        "expected": "refused-or-disputed",
+        "id": "dispute-2",
+        "body": "This is ridiculous. I never agreed to pay this amount. The contract clearly states a different figure.",
+        "expected": "dispute",
     },
     {
-        "id": "refuse-3",
+        "id": "dispute-3",
         "body": "The job was never finished properly so I'm disputing this invoice. I'm not paying until you fix the issues.",
-        "expected": "refused-or-disputed",
+        "expected": "dispute",
+    },
+
+    # --- refusal ---
+    {
+        "id": "refusal-1",
+        "body": "Absolutely not. Take me to court if you want, I'm not paying a penny.",
+        "expected": "refusal",
     },
     {
-        "id": "refuse-4",
-        "body": "Absolutely not. Take me to court if you want, I'm not paying a penny.",
-        "expected": "refused-or-disputed",
+        "id": "refusal-2",
+        "body": "Stop contacting me. I don't care what you say, you're not getting anything from me.",
+        "expected": "refusal",
+    },
+    {
+        "id": "refusal-3",
+        "body": "No. Go away.",
+        "expected": "refusal",
     },
 
     # --- agreed-with-deadline ---
@@ -64,6 +79,11 @@ SAMPLE_RESPONSES: list[dict[str, str]] = [
     {
         "id": "agreed-deadline-3",
         "body": "OK I accept I owe this. I will make the payment by end of this week.",
+        "expected": "agreed-with-deadline",
+    },
+    {
+        "id": "agreed-deadline-4",
+        "body": "I'll pay shortly.",
         "expected": "agreed-with-deadline",
     },
 
@@ -159,15 +179,46 @@ class TestComputeWorkingDayDeadline:
         result = _compute_working_day_deadline(date(2026, 4, 10), 3)
         assert result == date(2026, 4, 15)
 
-    def test_lands_on_sunday_uses_two_days(self):
-        # If 3 working days would land on a Sunday, use 2 instead.
-        # Thursday 2026-04-02 + 3 working days = Tuesday 2026-04-07 (not Sunday)
-        # Let's find a case where it would land on Sunday...
-        # Actually the function skips weekends, so 3 working days can never
-        # land on a weekend. The Sunday check is for edge cases where
-        # the calendar math might differ. Let's test the 2-day fallback directly.
+    def test_two_working_days(self):
         result = _compute_working_day_deadline(date(2026, 4, 6), 2)
         assert result == date(2026, 4, 8)  # Wednesday
+
+
+class TestCountPriorPromises:
+    def test_no_promises(self):
+        assert _count_prior_promises([]) == 0
+        assert _count_prior_promises([{"response_classification": "dispute"}]) == 0
+
+    def test_counts_agreed_classifications(self):
+        timeline = [
+            {"response_classification": "agreed-with-deadline"},
+            {"response_classification": "agreed-without-deadline"},
+            {"response_classification": "dispute"},
+        ]
+        assert _count_prior_promises(timeline) == 2
+
+
+class TestDetectPhase:
+    def _make_job(self, planned_handover_at: str | None = None) -> JobSnapshot:
+        return JobSnapshot(id="job-1", name="Test", planned_handover_at=planned_handover_at)
+
+    def test_friendly_by_default(self):
+        job = self._make_job(planned_handover_at="2099-12-31T00:00:00")
+        assert detect_phase(job, []) == "friendly"
+
+    def test_post_handover_when_past_date(self):
+        job = self._make_job(planned_handover_at="2020-01-01T00:00:00")
+        assert detect_phase(job, []) == "post-handover"
+
+    def test_post_loa_when_legal_letter_in_timeline(self):
+        job = self._make_job(planned_handover_at="2020-01-01T00:00:00")
+        timeline = [{"category": "letter", "short_description": "Letter of claim sent", "details": ""}]
+        assert detect_phase(job, timeline) == "post-loa"
+
+    def test_post_loa_from_step_type(self):
+        job = self._make_job(planned_handover_at="2020-01-01T00:00:00")
+        timeline = [{"type": "letter-of-claim", "short_description": "", "details": ""}]
+        assert detect_phase(job, timeline) == "post-loa"
 
 
 class TestDetermineResponseAction:
@@ -179,68 +230,243 @@ class TestDetermineResponseAction:
             reasoning="test",
         )
 
-    def _make_job(self) -> JobSnapshot:
-        return JobSnapshot(id="job-1", name="Test Debtor", price=1000.0, amount_paid=0.0)
-
-    def test_refused_suggests_handover(self):
-        result = determine_response_action(
-            classification_result=self._make_classification("refused-or-disputed"),
-            job_snapshot=self._make_job(),
-            timeline_items=[],
+    def _make_job(self, handover_days: int = 14) -> JobSnapshot:
+        return JobSnapshot(
+            id="job-1", name="Test Debtor", price=1000.0, amount_paid=0.0,
+            handover_days=handover_days,
         )
-        assert result.action == "suggest-handover"
-        assert result.classification == "refused-or-disputed"
 
-    def test_agreed_with_deadline_pauses(self):
-        result = determine_response_action(
-            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
-            job_snapshot=self._make_job(),
-            timeline_items=[],
-        )
-        assert result.action == "pause-until-deadline"
+    def _prior_promise_timeline(self) -> list[dict[str, object]]:
+        return [{"response_classification": "agreed-with-deadline", "short_description": "", "details": ""}]
 
-    def test_agreed_with_deadline_but_missed_before_offers_plan(self):
-        timeline = [{"short_description": "Payment not received by deadline", "details": "Debtor missed deadline again"}]
-        result = determine_response_action(
-            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
-            job_snapshot=self._make_job(),
-            timeline_items=timeline,
-        )
-        assert result.action == "offer-payment-plan"
-        assert result.has_missed_deadlines is True
+    # --- claims-paid ---
 
-    def test_agreed_without_deadline_sets_deadline(self):
-        result = determine_response_action(
-            classification_result=self._make_classification("agreed-without-deadline"),
-            job_snapshot=self._make_job(),
-            timeline_items=[],
-        )
-        assert result.action == "set-deadline"
-        assert result.computed_deadline is not None
-
-    def test_cant_afford_offers_plan(self):
-        result = determine_response_action(
-            classification_result=self._make_classification("cant-afford"),
-            job_snapshot=self._make_job(),
-            timeline_items=[],
-        )
-        assert result.action == "offer-payment-plan"
-
-    def test_claims_paid_awaits_confirmation(self):
+    def test_claims_paid_friendly_awaits_confirmation(self):
         result = determine_response_action(
             classification_result=self._make_classification("claims-paid"),
             job_snapshot=self._make_job(),
             timeline_items=[],
+            phase="friendly",
         )
         assert result.action == "await-payment-confirmation"
+
+    def test_claims_paid_post_handover_auto_checks(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("claims-paid"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "auto-check-payment"
+
+    def test_claims_paid_post_loa_auto_checks(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("claims-paid"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-loa",
+        )
+        assert result.action == "auto-check-payment"
+
+    # --- agreed-with-deadline, friendly ---
+
+    def test_agreed_deadline_friendly_within_max_wait_pauses(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-04-10"),
+            job_snapshot=self._make_job(handover_days=14),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "pause-until-deadline"
+
+    def test_agreed_deadline_friendly_beyond_max_wait_sets_deadline(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-12-31"),
+            job_snapshot=self._make_job(handover_days=14),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "set-deadline"
+        assert result.computed_deadline is not None
+
+    # --- agreed-with-deadline, post-handover ---
+
+    def test_agreed_deadline_post_handover_first_short_pauses(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "pause-until-deadline"
+
+    def test_agreed_deadline_post_handover_first_long_negotiates(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-12-31"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "negotiate"
+
+    def test_agreed_deadline_post_handover_repeat_threatens(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
+            job_snapshot=self._make_job(),
+            timeline_items=self._prior_promise_timeline(),
+            phase="post-handover",
+        )
+        assert result.action == "threaten-deadline"
+        assert result.computed_deadline is not None
+
+    # --- agreed-without-deadline ---
+
+    def test_agreed_no_deadline_friendly_asks_for_timeline(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-without-deadline"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "ask-for-timeline"
+
+    def test_agreed_no_deadline_post_handover_first_asks(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-without-deadline"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "ask-for-timeline"
+
+    def test_agreed_no_deadline_post_handover_repeat_threatens(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-without-deadline"),
+            job_snapshot=self._make_job(),
+            timeline_items=self._prior_promise_timeline(),
+            phase="post-handover",
+        )
+        assert result.action == "threaten-deadline"
+
+    def test_agreed_no_deadline_post_loa_repeat_sets_deadline(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-without-deadline"),
+            job_snapshot=self._make_job(),
+            timeline_items=self._prior_promise_timeline(),
+            phase="post-loa",
+        )
+        assert result.action == "set-deadline"
+
+    # --- cant-afford ---
+
+    def test_cant_afford_friendly_suggests_handover(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("cant-afford"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "suggest-handover"
+
+    def test_cant_afford_post_handover_negotiates(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("cant-afford"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "negotiate"
+
+    def test_cant_afford_post_loa_negotiates(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("cant-afford"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-loa",
+        )
+        assert result.action == "negotiate"
+
+    # --- dispute ---
+
+    def test_dispute_friendly_demands_evidence(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("dispute"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "demand-evidence"
+
+    def test_dispute_post_loa_demands_evidence(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("dispute"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-loa",
+        )
+        assert result.action == "demand-evidence"
+        assert "continue" in result.user_message.lower()
+
+    # --- refusal ---
+
+    def test_refusal_friendly_goes_legal(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("refusal"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="friendly",
+        )
+        assert result.action == "go-legal"
+
+    def test_refusal_post_handover_goes_legal(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("refusal"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.action == "go-legal"
+
+    def test_refusal_post_loa_continues_legal(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("refusal"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-loa",
+        )
+        assert result.action == "continue-legal"
+
+    # --- unclear ---
 
     def test_unclear_replans(self):
         result = determine_response_action(
             classification_result=self._make_classification("unclear"),
             job_snapshot=self._make_job(),
             timeline_items=[],
+            phase="friendly",
         )
         assert result.action == "replan"
+
+    # --- phase and guidance metadata ---
+
+    def test_phase_included_in_result(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("cant-afford"),
+            job_snapshot=self._make_job(),
+            timeline_items=[],
+            phase="post-handover",
+        )
+        assert result.phase == "post-handover"
+        assert result.guidance_notes  # should have negotiation guidance
+
+    def test_is_first_offence_flag(self):
+        result = determine_response_action(
+            classification_result=self._make_classification("agreed-with-deadline", "2026-04-20"),
+            job_snapshot=self._make_job(),
+            timeline_items=self._prior_promise_timeline(),
+            phase="post-handover",
+        )
+        assert result.is_first_offence is False
 
 
 class TestPaymentPlanStub:

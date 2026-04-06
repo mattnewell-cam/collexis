@@ -470,7 +470,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         # Only replan if the action calls for it (not for actions that need user input first)
         plan_steps_response: list[dict[str, object]] = []
-        should_replan = action_result.action in ("replan", "set-deadline")
+        should_replan = action_result.action in (
+            "replan", "set-deadline", "ask-for-timeline", "threaten-deadline",
+            "negotiate", "continue-legal",
+        )
 
         if should_replan:
             log_event(

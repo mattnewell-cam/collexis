@@ -7,7 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 DebtorResponseClassification = Literal[
-    "refused-or-disputed",
+    "dispute",
+    "refusal",
     "agreed-with-deadline",
     "agreed-without-deadline",
     "cant-afford",
@@ -16,14 +17,22 @@ DebtorResponseClassification = Literal[
 ]
 
 DebtorResponseAction = Literal[
-    "suggest-handover",
-    "set-deadline",
-    "offer-payment-plan",
-    "pause-until-deadline",
     "await-payment-confirmation",
+    "auto-check-payment",
+    "pause-until-deadline",
+    "negotiate",
+    "set-deadline",
+    "ask-for-timeline",
+    "threaten-deadline",
+    "demand-evidence",
+    "suggest-handover",
+    "go-legal",
+    "continue-legal",
     "replan",
     "none",
 ]
+
+DebtRecoveryPhase = Literal["friendly", "post-handover", "post-loa"]
 
 DocumentStatus = Literal["processing", "ready", "failed"]
 ProcessingProfile = Literal["default", "job-intake"]
@@ -281,7 +290,7 @@ class DebtRecoveryContext(BaseModel):
     court_fee_band_label: str = Field(default="")
     payment_sort_code: str = Field(default="")
     payment_account_number: str = Field(default="")
-    phase: Literal["pre-handover", "post-handover"] = "pre-handover"
+    phase: DebtRecoveryPhase = "friendly"
 
 
 class DebtorResponseClassificationResult(BaseModel):
@@ -294,9 +303,12 @@ class DebtorResponseClassificationResult(BaseModel):
 class DebtorResponseActionResult(BaseModel):
     classification: DebtorResponseClassification
     action: DebtorResponseAction
+    phase: DebtRecoveryPhase = "friendly"
     stated_deadline: str | None = None
     computed_deadline: str | None = Field(default=None, description="3 working-day deadline (2 if 3 lands on Sunday)")
     has_missed_deadlines: bool = False
+    is_first_offence: bool = True
     confidence: float = 0.0
     reasoning: str = Field(default="")
     user_message: str = Field(default="", description="Human-readable summary for the UI")
+    guidance_notes: str = Field(default="", description="Context notes for the AI drafter on how to handle this response")
