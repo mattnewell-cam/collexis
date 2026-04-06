@@ -6,9 +6,9 @@ import { withRouteLogging } from '@/lib/logging/server';
 import { createClient } from '@/lib/supabase/server';
 import { findJobById } from '@/lib/jobStore';
 import {
-  sendMetaWhatsAppText,
-  whatsAppConfigurationError,
-} from '@/lib/metaWhatsApp';
+  sendPlaywrightWhatsApp,
+  playwrightWhatsAppConfigurationError,
+} from '@/lib/playwrightWhatsApp';
 import type { Communication } from '@/types/communication';
 
 type SendWhatsAppPayload = {
@@ -136,7 +136,7 @@ export const POST = withRouteLogging('communications.send_whatsapp', async (
   { params }: { params: Promise<{ id: string }> },
   log,
 ) => {
-  const configurationError = whatsAppConfigurationError();
+  const configurationError = playwrightWhatsAppConfigurationError();
   if (configurationError) {
     return NextResponse.json({ error: configurationError }, { status: 500 });
   }
@@ -188,7 +188,7 @@ export const POST = withRouteLogging('communications.send_whatsapp', async (
       recipientCount: recipients.length,
     });
     const deliveryResponses = await Promise.all(
-      recipients.map(to => sendMetaWhatsAppText({
+      recipients.map(to => sendPlaywrightWhatsApp({
         to,
         textBody: communication.details.trim(),
       })),
