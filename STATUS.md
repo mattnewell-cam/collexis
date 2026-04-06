@@ -18,6 +18,7 @@
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
+- WhatsApp sending now reuses a populated legacy root `.playwright-profile` automatically if present, so older authenticated Playwright sessions still work after the runtime cleanup.
 - Starter/sample jobs now lazily backfill their missing communications timeline into Supabase when the communications page opens, so seeded accounts no longer show empty sample timelines.
 
 ### Comms channels

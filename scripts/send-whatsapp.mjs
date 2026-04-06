@@ -2,138 +2,208 @@
  * send-whatsapp.mjs
  *
  * Sends a WhatsApp message via WhatsApp Web using Playwright's Chromium.
- * Runs completely independently of your Chrome — no killing, no profile conflicts.
+ * Runs independently from the user's regular browser profile.
  *
- * FIRST RUN: A headed browser opens. Scan the WhatsApp QR code to log in.
- * The session is saved in .playwright-profile/ and reused automatically.
+ * First-time setup:
+ *   node scripts/send-whatsapp.mjs --setup
  *
- * Usage:
+ * Send:
  *   node scripts/send-whatsapp.mjs <phone> <message>
- *   Phone in international format without + or spaces: 447500111111
- *
- * Example:
+ *   Phone must be international digits without a leading +, for example:
  *   node scripts/send-whatsapp.mjs 447500111111 "hi"
  */
 
-import { chromium } from 'playwright';
-import path         from 'path';
+import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
+import { chromium } from 'playwright';
 
-const __dirname       = path.dirname(fileURLToPath(import.meta.url));
-const PROFILE_DIR     = process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR
-  ? (path.isAbsolute(process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR)
-      ? process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR
-      : path.resolve(__dirname, '..', process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR))
-  : path.join(__dirname, '..', 'runtime', 'playwright', 'whatsapp-profile');
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LEGACY_PROFILE_DIR = path.join(__dirname, '..', '.playwright-profile');
+const RUNTIME_PROFILE_DIR = path.join(__dirname, '..', 'runtime', 'playwright', 'whatsapp-profile');
 const WA_LOAD_TIMEOUT = 90_000;
+const QR_READY_TIMEOUT = 5 * 60_000;
 const CONFIRM_TIMEOUT = 10_000;
 
-// ---------------------------------------------------------------------------
-// WhatsApp helpers
-// ---------------------------------------------------------------------------
+function isProfilePopulated(profileDir) {
+  try {
+    return fs.readdirSync(profileDir).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function resolveProfileDir() {
+  const configured = process.env.COLLEXIS_PLAYWRIGHT_PROFILE_DIR?.trim();
+  if (configured) {
+    return path.isAbsolute(configured)
+      ? configured
+      : path.resolve(__dirname, '..', configured);
+  }
+
+  if (isProfilePopulated(RUNTIME_PROFILE_DIR)) {
+    return RUNTIME_PROFILE_DIR;
+  }
+
+  if (isProfilePopulated(LEGACY_PROFILE_DIR)) {
+    return LEGACY_PROFILE_DIR;
+  }
+
+  return RUNTIME_PROFILE_DIR;
+}
+
+const PROFILE_DIR = resolveProfileDir();
+
+function usage() {
+  return [
+    'Usage:',
+    '  node scripts/send-whatsapp.mjs --setup',
+    '  node scripts/send-whatsapp.mjs [--headed] <phone> <message>',
+    '',
+    'Examples:',
+    '  node scripts/send-whatsapp.mjs --setup',
+    '  node scripts/send-whatsapp.mjs 447500111111 "hi"',
+    '  node scripts/send-whatsapp.mjs --headed 447500111111 "hi"',
+  ].join('\n');
+}
+
+function parseArgs(argv) {
+  const args = [...argv];
+  const setup = args.includes('--setup');
+  const headed = args.includes('--headed');
+  const help = args.includes('--help') || args.includes('-h');
+  const positional = args.filter(arg => !['--setup', '--headed', '--help', '-h'].includes(arg));
+
+  return { setup, headed, help, positional };
+}
 
 async function detectState(page) {
-  // '#main' also matches an SVG <mask id="main"> that exists on the splash screen,
-  // so we wait for the compose footer which only appears once the chat UI is loaded.
-  // The QR canvas also only appears after the splash, so both are safe post-splash selectors.
   try {
     return await Promise.race([
       page.waitForSelector('footer [contenteditable]', { timeout: WA_LOAD_TIMEOUT }).then(() => 'ready'),
-      page.waitForSelector('[data-ref]',               { timeout: WA_LOAD_TIMEOUT }).then(() => 'qr'),
+      page.waitForSelector('[data-ref]', { timeout: WA_LOAD_TIMEOUT }).then(() => 'qr'),
     ]);
   } catch {
     return 'timeout';
   }
 }
 
+async function waitForReadyAfterQr(page) {
+  await page.waitForSelector('[data-ref]', { timeout: WA_LOAD_TIMEOUT });
+  console.log('QR code is visible. Scan it with the WhatsApp account you want to use.');
+  await page.waitForSelector('footer [contenteditable]', { timeout: QR_READY_TIMEOUT });
+}
+
 async function findComposeBox(page) {
-  for (const sel of [
+  for (const selector of [
     'footer [contenteditable="true"][data-tab="10"]',
     'footer [contenteditable="true"]',
     '[data-testid="conversation-compose-box-input"]',
   ]) {
     try {
-      return await page.waitForSelector(sel, { timeout: 8_000 });
-    } catch { /* try next */ }
+      return await page.waitForSelector(selector, { timeout: 8_000 });
+    } catch {
+      // Try the next selector.
+    }
   }
-  throw new Error('Could not find WhatsApp compose box');
+
+  throw new Error('Could not find WhatsApp compose box.');
 }
 
 async function confirmSent(page) {
-  // Most reliable signal: compose box clears to empty/newline after a successful send
   try {
     const box = await page.$('footer [contenteditable]');
     if (box) {
       await page.waitForFunction(
         el => el.innerText.trim() === '',
         box,
-        { timeout: CONFIRM_TIMEOUT }
+        { timeout: CONFIRM_TIMEOUT },
       );
       return true;
     }
-  } catch { /* fall through */ }
+  } catch {
+    // Fall through to false.
+  }
+
   return false;
 }
 
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
-
-async function main() {
-  const [,, phone, ...msgParts] = process.argv;
-  const message = msgParts.join(' ');
-
-  if (!phone || !message) {
-    console.error('Usage: node scripts/send-whatsapp.mjs <phone> <message>');
-    console.error('  e.g: node scripts/send-whatsapp.mjs 447500111111 "hi"');
-    process.exit(1);
-  }
-
-  console.log(`\n📱 Sending WhatsApp message to +${phone}: "${message}"\n`);
-  console.log(`📁 Profile: ${PROFILE_DIR}`);
-
-  // Headed only for QR scanning; headless for normal sends
+async function launchContext({ headed }) {
   const context = await chromium.launchPersistentContext(PROFILE_DIR, {
-    headless: true,
+    headless: !headed,
     args: [
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-blink-features=AutomationControlled',
     ],
-    // Mask headless indicators so WhatsApp Web doesn't block us
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
   });
 
-  // Remove navigator.webdriver flag that sites use to detect automation
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
+  return context;
+}
+
+async function ensureSession({ headed }) {
+  console.log(`Profile: ${PROFILE_DIR}`);
+  const context = await launchContext({ headed });
+
   try {
     const pages = context.pages();
-    const page  = pages.length > 0 ? pages[0] : await context.newPage();
+    const page = pages.length > 0 ? pages[0] : await context.newPage();
+    await page.goto('https://web.whatsapp.com', {
+      waitUntil: 'domcontentloaded',
+      timeout: WA_LOAD_TIMEOUT,
+    });
 
-    const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
-    console.log(`🌐 ${url}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: WA_LOAD_TIMEOUT });
-
-    console.log('⏳ Waiting for WhatsApp…');
     const state = await detectState(page);
-
+    if (state === 'ready') {
+      console.log('WhatsApp session is already active.');
+      return;
+    }
     if (state === 'qr') {
-      throw new Error(
-        'WhatsApp session expired or not set up.\n' +
-        'Run with --setup flag to scan QR: node scripts/send-whatsapp.mjs --setup'
-      );
-    } else if (state !== 'ready') {
-      throw new Error(`WhatsApp failed to load (state: ${state})`);
+      if (!headed) {
+        throw new Error('A QR scan is required. Re-run with --setup to open a headed browser.');
+      }
+      await waitForReadyAfterQr(page);
+      console.log('WhatsApp session saved.');
+      return;
     }
 
-    // Send
+    throw new Error('WhatsApp Web failed to load while setting up the session.');
+  } finally {
+    await context.close();
+  }
+}
+
+async function sendMessage({ phone, message, headed }) {
+  console.log(`Sending WhatsApp message to +${phone}`);
+  console.log(`Profile: ${PROFILE_DIR}`);
+
+  const context = await launchContext({ headed });
+
+  try {
+    const pages = context.pages();
+    const page = pages.length > 0 ? pages[0] : await context.newPage();
+    const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(message)}`;
+
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: WA_LOAD_TIMEOUT });
+
+    const state = await detectState(page);
+    if (state === 'qr') {
+      throw new Error(
+        'WhatsApp session expired or is not set up. Run: node scripts/send-whatsapp.mjs --setup',
+      );
+    }
+    if (state !== 'ready') {
+      throw new Error(`WhatsApp failed to load (state: ${state}).`);
+    }
+
     const box = await findComposeBox(page);
     await box.click();
     if (!(await box.innerText()).trim()) {
@@ -141,23 +211,46 @@ async function main() {
     }
     await page.waitForTimeout(300);
 
-    const sendBtn = page.locator('[data-testid="send"]').first();
-    if (await sendBtn.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await sendBtn.click();
+    const sendButton = page.locator('[data-testid="send"]').first();
+    if (await sendButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await sendButton.click();
     } else {
       await page.keyboard.press('Enter');
     }
 
-    console.log('📤 Sent — confirming…');
-    const ok = await confirmSent(page);
-    console.log(ok ? '✅ Delivered.' : '⚠️  Could not confirm (may still have sent).');
-
+    console.log('Message submitted. Confirming delivery...');
+    const delivered = await confirmSent(page);
+    console.log(delivered ? 'Delivered.' : 'Could not confirm delivery, but the message may still have sent.');
   } finally {
     await context.close();
   }
 }
 
-main().catch(err => {
-  console.error('\n❌', err.message);
+async function main() {
+  const { setup, headed, help, positional } = parseArgs(process.argv.slice(2));
+
+  if (help) {
+    console.log(usage());
+    return;
+  }
+
+  if (setup) {
+    await ensureSession({ headed: true });
+    return;
+  }
+
+  const [phone, ...messageParts] = positional;
+  const message = messageParts.join(' ').trim();
+
+  if (!phone || !message) {
+    console.error(usage());
+    process.exit(1);
+  }
+
+  await sendMessage({ phone, message, headed });
+}
+
+main().catch(error => {
+  console.error(`\nERROR: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 });
