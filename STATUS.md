@@ -18,6 +18,7 @@
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
+- Starter/sample jobs now lazily backfill their missing communications timeline into Supabase when the communications page opens, so seeded accounts no longer show empty sample timelines.
 
 ### Comms channels
 - Intend to eventually have email, call, SMS, whatsapp and letters

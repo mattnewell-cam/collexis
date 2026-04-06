@@ -3,6 +3,7 @@ import JobCommsView from '@/components/JobCommsView';
 import { logServerEvent } from '@/lib/logging/server';
 import { getServerComponentTrace } from '@/lib/logging/serverComponent';
 import { findJobById } from '@/lib/jobStore';
+import { ensureStarterTimeline } from '@/lib/starterTimeline';
 import { createClient } from '@/lib/supabase/server';
 
 export default async function JobCommunicationsPage({
@@ -41,6 +42,16 @@ export default async function JobCommunicationsPage({
       jobId: id,
     }, trace);
     notFound();
+  }
+
+  try {
+    await ensureStarterTimeline(job, trace);
+  } catch (error) {
+    logServerEvent('warn', 'server-component', 'console.job_communications.starter_timeline.failed', {
+      path: '/console/jobs/[id]/communications',
+      jobId: id,
+      error,
+    }, trace);
   }
 
   logServerEvent('info', 'server-component', 'console.job_communications.read.completed', {

@@ -12,6 +12,7 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `logging_observability_expansion.md` - Added server-component/proxy auth logs, backend request-scoped trace binding, timed OpenAI/Supabase/Brevo logging, and deeper WhatsApp webhook event logs without touching audit SQL work.
 - `password_reset_callback_fix.md` - Recovery links must round-trip through `/auth/callback` before `/reset-password` or the password update fails.
 - `production_signup_flow.md` - Signup requests can succeed without feedback; show a confirmation state instead of redirecting immediately.
+- `starter_timeline_backfill.md` - Sample jobs seeded into `jobs` without backend timeline rows now backfill their starter communications the first time the communications page is opened.
 - `outreach_plan_change_requests.md` - Outreach-plan pages now expose a dedicated Suggest changes flow and persist plan-change requests alongside tone guidance.
 - `supabase_migration_history_repair.md` - Production Supabase migration history was repaired to match local timestamps, and the missing outreach scheduler columns were applied.
 - `local_first_agent_workflow.md` - Agent instructions now default to `http://localhost:3000`, commit automatically, and only push when explicitly asked.
