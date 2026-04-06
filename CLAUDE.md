@@ -88,6 +88,10 @@ Persistent project memory lives in `.claude/memory/`. Read `.claude/memory/MEMOR
 
 **When to update/delete:** if a memory contradicts current reality, update it (and refresh the `date`) or remove it and sync the index.
 
+## Status Tracking
+
+Update `STATUS.md` when a task makes a significant high-level change or addition to the project. Keep entries concise and outcome-focused; do not clog it with low-level implementation details, minor fixes, or routine churn.
+
 ## Small Change Rule
 
 For small or localized UI changes and bug fixes:
