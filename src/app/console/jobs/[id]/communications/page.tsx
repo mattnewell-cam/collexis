@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import JobCommsView from '@/components/JobCommsView';
+import JobCommunicationsPageClient from '@/components/JobCommunicationsPageClient';
 import { logServerEvent } from '@/lib/logging/server';
 import { getServerComponentTrace } from '@/lib/logging/serverComponent';
 import { findJobById } from '@/lib/jobStore';
@@ -59,5 +59,5 @@ export default async function JobCommunicationsPage({
     jobId: id,
   }, trace);
 
-  return <JobCommsView job={job} />;
+  return <JobCommunicationsPageClient />;
 }

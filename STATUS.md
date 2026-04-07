@@ -1,3 +1,5 @@
+### Questions
+- When user manually adds communication, if they don't structure "Details" strictly, does anything break? 
 
 ## Workflow
 1. User adds job files (invoice, whatsapp ss, emails...)
@@ -20,6 +22,7 @@
 7. Legal stage. File a Letter of Action. Wait 30d. File a small claim. If they defend it, hand back to user.
 
 ### UI
+- Job detail sub-routes now share cached job/documents/communications/outreach-plan state under the `[id]` layout, so switching tabs no longer cold-loads those panels every time.
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.

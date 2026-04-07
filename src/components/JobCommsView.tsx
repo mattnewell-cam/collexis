@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useJobRouteCache } from '@/components/JobRouteCacheProvider';
 import { logClientEvent, runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
 import type { Communication, DebtorResponseActionResult } from '@/types/communication';
@@ -22,6 +23,7 @@ import {
   linkDocumentToTimelineItem,
   updateTimelineItem,
 } from '@/lib/backendTimeline';
+import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import CommForm from './comms/CommForm';
 import IntakeChat from './comms/IntakeChat';
 import ResponseActionBanner from './comms/ResponseActionBanner';
@@ -66,7 +68,7 @@ interface OutreachPlannerSections {
 }
 
 function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
+  return toUserFacingErrorMessage(error, fallback);
 }
 
 function sanitizeHandoverDays(value: string, fallback = defaultHandoverDays) {
@@ -155,18 +157,28 @@ function planNeedsDraftRefresh(steps: PostNowStep[]) {
   });
 }
 
-export default function JobCommsView({ job }: { job: Job }) {
+export default function JobCommsView() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const {
+    job,
+    setJob,
+    communications: cachedCommunications,
+    setCommunications: setCachedCommunications,
+    documents: cachedDocuments,
+    setDocuments: setCachedDocuments,
+    outreachPlan: cachedOutreachPlan,
+    setOutreachPlan: setCachedOutreachPlan,
+  } = useJobRouteCache();
   const initialPlannerSections = extractOutreachPlannerSections(job.contextInstructions).sections;
   const [jobState, setJobState] = useState<Job>(job);
-  const [comms, setComms] = useState<Communication[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [comms, setComms] = useState<Communication[]>(cachedCommunications.data);
+  const [loading, setLoading] = useState(!cachedCommunications.loaded);
   const [pageError, setPageError] = useState<string | null>(null);
-  const [documents, setDocuments] = useState<DocumentRecord[]>([]);
-  const [postNowSteps, setPostNowSteps] = useState<PostNowStep[]>([]);
-  const [planLoading, setPlanLoading] = useState(true);
+  const [documents, setDocuments] = useState<DocumentRecord[]>(cachedDocuments.data);
+  const [postNowSteps, setPostNowSteps] = useState<PostNowStep[]>(cachedOutreachPlan.data);
+  const [planLoading, setPlanLoading] = useState(!cachedOutreachPlan.loaded);
   const [planGenerating, setPlanGenerating] = useState(false);
   const [savingHandoverDays, setSavingHandoverDays] = useState(false);
   const [savingDraftId, setSavingDraftId] = useState<string | null>(null);
@@ -203,6 +215,26 @@ export default function JobCommsView({ job }: { job: Job }) {
   }, [job]);
 
   useEffect(() => {
+    if (cachedCommunications.loaded) {
+      setComms(cachedCommunications.data);
+      setLoading(false);
+    }
+  }, [cachedCommunications]);
+
+  useEffect(() => {
+    if (cachedDocuments.loaded) {
+      setDocuments(cachedDocuments.data);
+    }
+  }, [cachedDocuments]);
+
+  useEffect(() => {
+    if (cachedOutreachPlan.loaded) {
+      setPostNowSteps(cachedOutreachPlan.data);
+      setPlanLoading(false);
+    }
+  }, [cachedOutreachPlan]);
+
+  useEffect(() => {
     activeJobIdRef.current = jobState.id;
   }, [jobState.id]);
 
@@ -211,6 +243,7 @@ export default function JobCommsView({ job }: { job: Job }) {
     try {
       const nextComms = await fetchTimelineItems(jobState.id);
       setComms(nextComms);
+      setCachedCommunications(nextComms);
       setPageError(null);
     } catch (error) {
       setPageError(errorMessage(error, 'Could not load communications.'));
@@ -218,28 +251,30 @@ export default function JobCommsView({ job }: { job: Job }) {
     } finally {
       setLoading(false);
     }
-  }, [jobState.id]);
+  }, [jobState.id, setCachedCommunications]);
 
   const loadDocuments = useCallback(async () => {
     try {
       const nextDocuments = await fetchJobDocuments(jobState.id);
       setDocuments(nextDocuments);
+      setCachedDocuments(nextDocuments);
     } catch (error) {
       setPageError(errorMessage(error, 'Could not load documents.'));
       setDocuments([]);
     }
-  }, [jobState.id]);
+  }, [jobState.id, setCachedDocuments]);
 
   const refreshPlanDrafts = useCallback(async (draftJob: Job) => {
     try {
       const nextPlan = await ensureOutreachPlanDrafts(draftJob);
       if (activeJobIdRef.current !== draftJob.id) return;
       setPostNowSteps(nextPlan);
+      setCachedOutreachPlan(nextPlan);
     } catch (error) {
       if (activeJobIdRef.current !== draftJob.id) return;
       setPageError(errorMessage(error, 'Could not refresh outreach plan drafts.'));
     }
-  }, []);
+  }, [setCachedOutreachPlan]);
 
   const loadPlan = useCallback(async () => {
     setPlanLoading(true);
@@ -249,6 +284,7 @@ export default function JobCommsView({ job }: { job: Job }) {
 
       setPageError(null);
       setPostNowSteps(existingPlan);
+      setCachedOutreachPlan(existingPlan);
 
       if (planNeedsDraftRefresh(existingPlan)) {
         void refreshPlanDrafts(jobState);
@@ -261,7 +297,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       if (activeJobIdRef.current !== jobState.id) return;
       setPlanLoading(false);
     }
-  }, [jobState, refreshPlanDrafts]);
+  }, [jobState, refreshPlanDrafts, setCachedOutreachPlan]);
 
   useEffect(() => {
     setEditingComm(null);
@@ -272,10 +308,33 @@ export default function JobCommsView({ job }: { job: Job }) {
       clearTimeout(deleteUndoTimeoutRef.current);
       deleteUndoTimeoutRef.current = null;
     }
-    void loadComms();
-    void loadDocuments();
-    void loadPlan();
-  }, [jobState.id, loadComms, loadDocuments, loadPlan]);
+    if (cachedCommunications.loaded) {
+      setLoading(false);
+    } else {
+      void loadComms();
+    }
+    if (cachedDocuments.loaded) {
+      setDocuments(cachedDocuments.data);
+    } else {
+      void loadDocuments();
+    }
+    if (cachedOutreachPlan.loaded) {
+      setPlanLoading(false);
+      setPostNowSteps(cachedOutreachPlan.data);
+    } else {
+      void loadPlan();
+    }
+  }, [
+    cachedCommunications.loaded,
+    cachedDocuments.data,
+    cachedDocuments.loaded,
+    cachedOutreachPlan.data,
+    cachedOutreachPlan.loaded,
+    jobState.id,
+    loadComms,
+    loadDocuments,
+    loadPlan,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -369,8 +428,9 @@ export default function JobCommsView({ job }: { job: Job }) {
     }
     const result = await response.json() as { job: Job };
     setJobState(result.job);
+    setJob(result.job);
     return result.job;
-  }, [jobState.id]);
+  }, [jobState.id, setJob]);
 
   const commitHandoverDays = useCallback(async (trace?: ClientActionTrace) => {
     const nextDays = sanitizeHandoverDays(handoverDaysInput, jobState.handoverDays ?? defaultHandoverDays);
@@ -406,7 +466,16 @@ export default function JobCommsView({ job }: { job: Job }) {
       }
       return [...prev, saved];
     });
-  }, []);
+    setCachedCommunications(prev => {
+      const index = prev.findIndex(candidate => candidate.id === saved.id);
+      if (index >= 0) {
+        const next = [...prev];
+        next[index] = saved;
+        return next;
+      }
+      return [...prev, saved];
+    });
+  }, [setCachedCommunications]);
 
   const handleSave = useCallback(async (comm: Communication) => {
     const updated = { ...comm, jobId: jobState.id };
@@ -431,6 +500,7 @@ export default function JobCommsView({ job }: { job: Job }) {
 
   const removeComm = (id: string) => {
     setComms(prev => prev.filter(comm => comm.id !== id));
+    setCachedCommunications(prev => prev.filter(comm => comm.id !== id));
     if (editingComm?.id === id) setEditingComm(null);
   };
 
@@ -521,6 +591,7 @@ export default function JobCommsView({ job }: { job: Job }) {
         const generatedPlan = await generateOutreachPlan(nextJob, trace);
         if (activeJobIdRef.current !== nextJob.id) return;
         setPostNowSteps(generatedPlan);
+        setCachedOutreachPlan(generatedPlan);
         if (planNeedsDraftRefresh(generatedPlan)) {
           void refreshPlanDrafts(nextJob);
         }
@@ -538,7 +609,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planChangeRequestsInput, planConfirmState, planToneInput, refreshPlanDrafts]);
+  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planChangeRequestsInput, planConfirmState, planToneInput, refreshPlanDrafts, setCachedOutreachPlan]);
 
   const requestPlanGeneration = useCallback((intent: 'generate' | 'regenerate' | 'revise') => {
     if (planGenerating) return;
@@ -588,7 +659,16 @@ export default function JobCommsView({ job }: { job: Job }) {
         documentId,
       });
       setComms(prev => prev.map(item => item.id === updated.id ? updated : item));
+      setCachedCommunications(prev => prev.map(item => item.id === updated.id ? updated : item));
       setDocuments(prev => prev.map(document =>
+        document.id === documentId
+          ? {
+              ...document,
+              linkedTimelineItemIds: Array.from(new Set([...(document.linkedTimelineItemIds ?? []), comm.id])),
+            }
+          : document,
+      ));
+      setCachedDocuments(prev => prev.map(document =>
         document.id === documentId
           ? {
               ...document,
@@ -602,7 +682,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPageError(message);
       throw new Error(message);
     }
-  }, []);
+  }, [setCachedCommunications, setCachedDocuments]);
 
   const handleUploadDocuments = useCallback(async (comm: Communication, files: FileList) => {
     try {
@@ -620,7 +700,20 @@ export default function JobCommsView({ job }: { job: Job }) {
         uploadedDocuments.forEach(document => nextById.set(document.id, document));
         return Array.from(nextById.values()).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
       });
+      setCachedDocuments(prev => {
+        const nextById = new Map(prev.map(document => [document.id, document]));
+        uploadedDocuments.forEach(document => nextById.set(document.id, document));
+        return Array.from(nextById.values()).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+      });
       setComms(prev => prev.map(item =>
+        item.id === comm.id
+          ? {
+              ...item,
+              linkedDocumentIds: Array.from(new Set([...(item.linkedDocumentIds ?? []), ...uploadedDocuments.map(document => document.id)])),
+            }
+          : item,
+      ));
+      setCachedCommunications(prev => prev.map(item =>
         item.id === comm.id
           ? {
               ...item,
@@ -634,7 +727,7 @@ export default function JobCommsView({ job }: { job: Job }) {
       setPageError(message);
       throw new Error(message);
     }
-  }, [jobState.id]);
+  }, [jobState.id, setCachedCommunications, setCachedDocuments]);
 
   const handleSavePlanDraft = useCallback(async (draftId: string, payload: { subject?: string; body: string }): Promise<PostNowDraft> => {
     setSavingDraftId(draftId);
@@ -652,6 +745,14 @@ export default function JobCommsView({ job }: { job: Job }) {
             }
           : step,
       ));
+      setCachedOutreachPlan(prev => prev.map(step =>
+        step.draft?.id === draftId
+          ? {
+              ...step,
+              draft: savedDraft,
+            }
+          : step,
+      ));
       setPageError(null);
       return savedDraft;
     } catch (error) {
@@ -661,7 +762,7 @@ export default function JobCommsView({ job }: { job: Job }) {
     } finally {
       setSavingDraftId(current => (current === draftId ? null : current));
     }
-  }, []);
+  }, [setCachedOutreachPlan]);
 
   const clearTimelineNotice = () => {
     setShowTimelineNotice(false);
@@ -822,9 +923,11 @@ export default function JobCommsView({ job }: { job: Job }) {
                               }, trace);
                               const nextComms = await fetchTimelineItems(jobState.id, trace);
                               setComms(nextComms);
+                              setCachedCommunications(nextComms);
                               const generatedPlan = await generateOutreachPlan(updatedJob, trace);
                               if (activeJobIdRef.current !== jobState.id) return;
                               setPostNowSteps(generatedPlan);
+                              setCachedOutreachPlan(generatedPlan);
                             }, { jobId: jobState.id, action: 'confirm_handover' });
                             setPendingResponseAction(null);
                             setPageError(null);
@@ -850,6 +953,7 @@ export default function JobCommsView({ job }: { job: Job }) {
                               }, trace);
                               const nextComms = await fetchTimelineItems(jobState.id, trace);
                               setComms(nextComms);
+                              setCachedCommunications(nextComms);
                             }, { jobId: jobState.id, action: 'payment_received' });
                             setPendingResponseAction(null);
                             setPageError(null);
@@ -874,9 +978,11 @@ export default function JobCommsView({ job }: { job: Job }) {
                               }, trace);
                               const nextComms = await fetchTimelineItems(jobState.id, trace);
                               setComms(nextComms);
+                              setCachedCommunications(nextComms);
                               const generatedPlan = await generateOutreachPlan(jobState, trace);
                               if (activeJobIdRef.current !== jobState.id) return;
                               setPostNowSteps(generatedPlan);
+                              setCachedOutreachPlan(generatedPlan);
                             }, { jobId: jobState.id, action: 'payment_not_received' });
                             setPendingResponseAction(null);
                             setPageError(null);
@@ -906,9 +1012,11 @@ export default function JobCommsView({ job }: { job: Job }) {
                               }, trace);
                               const nextComms = await fetchTimelineItems(jobState.id, trace);
                               setComms(nextComms);
+                              setCachedCommunications(nextComms);
                               const generatedPlan = await generateOutreachPlan(jobState, trace);
                               if (activeJobIdRef.current !== jobState.id) return;
                               setPostNowSteps(generatedPlan);
+                              setCachedOutreachPlan(generatedPlan);
                             }, { jobId: jobState.id, action: 'confirm_legal' });
                             setPendingResponseAction(null);
                             setPageError(null);

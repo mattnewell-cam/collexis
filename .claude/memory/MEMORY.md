@@ -18,3 +18,4 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `local_first_agent_workflow.md` - Agent instructions now default to `http://localhost:3000`, commit automatically, and only push when explicitly asked.
 - `runtime_artifact_layout.md` - Local generated artifacts now default into `runtime/`, including backend data, Next output, pytest cache, tsbuildinfo, the runtime venv, and Playwright profile state.
 - `whatsapp_backend_boundary.md` - WhatsApp sending now executes in the Python backend, with Next narrowed to auth, forwarding, and audit work.
+- `job_route_tab_cache.md` - Job sub-routes now share a client cache so documents/comms/outreach data persist across tab switches.

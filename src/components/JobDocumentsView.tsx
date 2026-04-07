@@ -2,9 +2,11 @@
 
 /* eslint-disable @next/next/no-img-element */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useJobRouteCache } from '@/components/JobRouteCacheProvider';
 import { documentBackendPath } from '@/lib/documentBackend';
 import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
+import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import type { DocumentRecord } from '@/types/document';
 
 type ApiDocumentRecord = {
@@ -57,6 +59,24 @@ function createLocalDocument(document: DocumentRecord): EditableDocumentRecord {
     isSaving: false,
     pendingSave: false,
     saveError: null,
+  };
+}
+
+function serializeEditableDocument(document: EditableDocumentRecord): DocumentRecord {
+  return {
+    id: document.id,
+    jobId: document.jobId,
+    originalFilename: document.originalFilename,
+    mimeType: document.mimeType,
+    storagePath: document.storagePath,
+    status: document.status,
+    title: document.title,
+    communicationDate: document.communicationDate,
+    description: document.description,
+    transcript: document.transcript,
+    extractionError: document.extractionError,
+    createdAt: document.createdAt,
+    updatedAt: document.updatedAt,
   };
 }
 
@@ -129,12 +149,15 @@ function documentFileUrl(documentId: string) {
 }
 
 export default function JobDocumentsView({ jobId }: { jobId: string }) {
+  const { documents: cachedDocuments, setDocuments: setCachedDocuments } = useJobRouteCache();
   const inputRef = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestDocuments = useRef<EditableDocumentRecord[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [documents, setDocuments] = useState<EditableDocumentRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [documents, setDocuments] = useState<EditableDocumentRecord[]>(() =>
+    cachedDocuments.loaded ? cachedDocuments.data.map(createLocalDocument) : [],
+  );
+  const [loading, setLoading] = useState(!cachedDocuments.loaded);
   const [uploading, setUploading] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
   const [viewerDocument, setViewerDocument] = useState<EditableDocumentRecord | null>(null);
@@ -143,6 +166,12 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   useEffect(() => {
     latestDocuments.current = documents;
   }, [documents]);
+
+  useEffect(() => {
+    if (!cachedDocuments.loaded) return;
+    setDocuments(previous => mergeDocuments(previous, cachedDocuments.data));
+    setLoading(false);
+  }, [cachedDocuments]);
 
   useEffect(() => {
     if (!viewerDocument) {
@@ -191,19 +220,26 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
       }
 
       const payload: ApiDocumentRecord[] = await response.json() as ApiDocumentRecord[];
-      setDocuments(prev => mergeDocuments(prev, payload.map(mapApiDocument)));
+      const nextDocuments = payload.map(mapApiDocument);
+      setDocuments(prev => mergeDocuments(prev, nextDocuments));
+      setCachedDocuments(nextDocuments);
       setPageError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not load documents.';
+      const message = toUserFacingErrorMessage(error, 'Could not load documents.');
       setPageError(message);
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, [jobId]);
+  }, [jobId, setCachedDocuments]);
 
   useEffect(() => {
+    if (cachedDocuments.loaded) {
+      setLoading(false);
+      return;
+    }
+
     void fetchDocuments(true);
-  }, [fetchDocuments]);
+  }, [cachedDocuments.loaded, fetchDocuments]);
 
   useEffect(() => {
     if (!hasProcessingDocuments) return;
@@ -218,6 +254,11 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   useEffect(() => () => {
     Object.values(saveTimers.current).forEach(timer => clearTimeout(timer));
   }, [jobId]);
+
+  useEffect(() => {
+    if (!cachedDocuments.loaded && documents.length === 0) return;
+    setCachedDocuments(documents.map(serializeEditableDocument));
+  }, [cachedDocuments.loaded, documents, setCachedDocuments]);
 
   const persistDocument = useCallback(async (documentId: string) => {
     const current = latestDocuments.current.find(doc => doc.id === documentId);
@@ -258,7 +299,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
           : doc,
       ));
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not save document.';
+      const message = toUserFacingErrorMessage(error, 'Could not save document.');
       setDocuments(prev => prev.map(doc =>
         doc.id === documentId
           ? { ...doc, isSaving: false, pendingSave: false, saveError: message }
@@ -345,7 +386,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
       setDocuments(prev => prev.map(doc => (doc.id === tempId ? created : doc)));
       setPageError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not upload document.';
+      const message = toUserFacingErrorMessage(error, 'Could not upload document.');
       setDocuments(prev => prev.filter(doc => doc.id !== tempId));
       setPageError(message);
       throw new Error(message);

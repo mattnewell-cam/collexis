@@ -2,6 +2,7 @@
 
 import { useEffect, useState, KeyboardEvent } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useJobRouteCache } from '@/components/JobRouteCacheProvider';
 import { runClientAction } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
 import { Job, JobStatus } from '@/types/job';
@@ -154,6 +155,7 @@ export default function JobDetailsForm({ job }: { job: Job }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { setJob } = useJobRouteCache();
   const [draft, setDraft] = useState<Job>({ ...job });
   const [editingStat, setEditingStat] = useState<EditableStatKey | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -201,6 +203,8 @@ export default function JobDetailsForm({ job }: { job: Job }) {
           throw new Error('Could not save job details.');
         }
 
+        const payload = await response.json() as { job: Job };
+        setJob(payload.job);
         router.push(`/console/jobs/${draft.id}/communications`);
         router.refresh();
       }, {

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { JobRouteCacheProvider } from '@/components/JobRouteCacheProvider';
 import JobSidebar from '@/components/JobSidebar';
 import { logServerEvent } from '@/lib/logging/server';
 import { getServerComponentTrace } from '@/lib/logging/serverComponent';
@@ -63,9 +64,11 @@ export default async function JobLayout({
         address={job.address}
         availableJobs={allJobs.filter(candidate => isOutstandingJob(candidate.status))}
       />
-      <main className="flex-1 min-w-0">
-        {children}
-      </main>
+      <JobRouteCacheProvider key={job.id} initialJob={job}>
+        <main className="flex-1 min-w-0">
+          {children}
+        </main>
+      </JobRouteCacheProvider>
     </div>
   );
 }
