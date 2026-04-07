@@ -39,7 +39,9 @@ When work in a worktree is complete, merge it cleanly into main: switch to main,
 ## Process Cleanup
 
 Clean up terminal processes you started for the task when they are no longer needed, and always do a final cleanup pass before ending the turn. Do not leave behind extra terminal windows, dev servers, watchers, or background jobs unless the user explicitly asked for a process to keep running.
-If you launched Chrome or a DevTools MCP browser for the task, close the whole browser window or browser context when you are done, not just the active tab.
+Chrome process safety is critical. NEVER close, kill, or clean up Chrome/Chromium processes that are using the user's default profile. That is user-owned state and may contain active work. Treat touching the default profile as a serious issue, not a convenience cleanup step.
+If you launch Chrome or a DevTools MCP browser for the task, you MUST use a separate agent-specific profile or browser context, and you MUST verify which profile is in use every single time before closing any browser window, browser context, or Chrome process.
+If you cannot prove a Chrome process belongs only to the isolated agent profile you launched for the task, do not touch it. Check first, every time.
 
 Keep the repo root clean. Do not leave logs, screenshots, or other temp artifacts in `collexis/`; use `logs/` or `tmp/` when needed and delete them when you are done.
 
