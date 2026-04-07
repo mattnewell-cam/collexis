@@ -148,6 +148,17 @@ function documentFileUrl(documentId: string) {
   return documentBackendPath(`/documents/${documentId}/file`);
 }
 
+function displayExtractionError(message: string | null) {
+  if (!message) {
+    return null;
+  }
+
+  return toUserFacingErrorMessage(
+    message,
+    'We could not add this document to the timeline automatically. Please review it manually or try uploading it again.',
+  );
+}
+
 export default function JobDocumentsView({ jobId }: { jobId: string }) {
   const { documents: cachedDocuments, setDocuments: setCachedDocuments } = useJobRouteCache();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -459,11 +470,14 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
           {!loading && documents.length === 0 && (
             <p className="text-sm text-gray-400 text-center py-8">No documents uploaded yet.</p>
           )}
-          {documents.map(doc => (
-            <div
-              key={doc.id}
-              className="grid overflow-hidden rounded-xl border border-gray-200 bg-white lg:grid-cols-[180px_minmax(0,1fr)_minmax(0,1.15fr)]"
-            >
+          {documents.map(doc => {
+            const extractionErrorMessage = displayExtractionError(doc.extractionError);
+
+            return (
+              <div
+                key={doc.id}
+                className="grid overflow-hidden rounded-xl border border-gray-200 bg-white lg:grid-cols-[180px_minmax(0,1fr)_minmax(0,1.15fr)]"
+              >
               <div className="flex min-h-[220px] flex-col justify-between bg-gray-100 px-4 py-4 text-center">
                 <p className="truncate text-[11px] font-medium text-gray-500">{doc.originalFilename}</p>
 
@@ -540,12 +554,13 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
                   rows={11}
                   className="mt-1 min-h-[172px] w-full flex-1 resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 outline-none transition-colors focus:border-[#2abfaa] focus:ring-1 focus:ring-[#2abfaa]"
                 />
-                {doc.extractionError && (
-                  <p className="mt-3 text-xs text-rose-600">{doc.extractionError}</p>
+                {extractionErrorMessage && (
+                  <p className="mt-3 text-xs text-rose-600">{extractionErrorMessage}</p>
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
 
         <input

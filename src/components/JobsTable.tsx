@@ -104,10 +104,13 @@ export default function JobsTable({ title, jobs, actions, onDeleteJob, deletingJ
       return;
     }
 
-    const didDelete = await onDeleteJob(deleteConfirmJob);
+    const jobToDelete = deleteConfirmJob;
+    setDeleteConfirmJob(null);
+    const didDelete = await onDeleteJob(jobToDelete);
     if (didDelete) {
-      setDeleteConfirmJob(null);
+      return;
     }
+    setDeleteConfirmJob(jobToDelete);
   };
 
   const navigateToJob = (jobId: string) => {

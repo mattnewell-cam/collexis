@@ -16,6 +16,13 @@ from .logging_utils import log_event
 
 
 logger = logging.getLogger(__name__)
+TIMELINE_OPTIONAL_FIELDS = {
+    "recipient",
+    "response_classification",
+    "response_action",
+    "stated_deadline",
+    "computed_deadline",
+}
 
 
 def utc_now() -> str:
@@ -56,6 +63,29 @@ def filename_stem(filename: str) -> str:
 def in_filter(values: list[str]) -> str:
     escaped = ['"' + value.replace('"', '\\"') + '"' for value in values]
     return "in.(" + ",".join(escaped) + ")"
+
+
+def is_timeline_optional_field_error(exc: httpx.HTTPStatusError) -> bool:
+    response = exc.response
+    if response is None or response.status_code != 400:
+        return False
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = response.text
+
+    serialized = json.dumps(payload) if isinstance(payload, dict) else str(payload)
+    normalized = serialized.lower()
+    return "schema cache" in normalized and any(field in normalized for field in TIMELINE_OPTIONAL_FIELDS)
+
+
+def strip_unsupported_timeline_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in payload.items()
+        if key not in TIMELINE_OPTIONAL_FIELDS
+    }
 
 
 def row_to_document(row: dict[str, Any]) -> dict[str, Any]:
@@ -591,7 +621,13 @@ class SupabaseDocumentRepository:
             "created_at": now,
             "updated_at": updated_at or now,
         }
-        rows = self._rest_request("POST", "timeline_items", json_body=payload)
+        try:
+            rows = self._rest_request("POST", "timeline_items", json_body=payload)
+        except httpx.HTTPStatusError as exc:
+            if not is_timeline_optional_field_error(exc):
+                raise
+            payload = strip_unsupported_timeline_fields(payload)
+            rows = self._rest_request("POST", "timeline_items", json_body=payload)
         timeline_item = row_to_timeline_item((rows or [payload])[0])
         timeline_item["linked_document_ids"] = []
         return timeline_item
@@ -611,12 +647,28 @@ class SupabaseDocumentRepository:
         if "subtype" in fields:
             fields["subtype"] = normalize_sms_channel(fields["subtype"])
         fields["updated_at"] = utc_now()
-        rows = self._rest_request(
-            "PATCH",
-            "timeline_items",
-            params={"id": f"eq.{timeline_item_id}"},
-            json_body=fields,
-        )
+        try:
+            rows = self._rest_request(
+                "PATCH",
+                "timeline_items",
+                params={"id": f"eq.{timeline_item_id}"},
+                json_body=fields,
+            )
+        except httpx.HTTPStatusError as exc:
+            if not is_timeline_optional_field_error(exc):
+                raise
+            fields = strip_unsupported_timeline_fields(fields)
+            if set(fields) == {"updated_at"}:
+                timeline_item = self.get_timeline_item(timeline_item_id)
+                if timeline_item is None:
+                    raise KeyError(timeline_item_id)
+                return timeline_item
+            rows = self._rest_request(
+                "PATCH",
+                "timeline_items",
+                params={"id": f"eq.{timeline_item_id}"},
+                json_body=fields,
+            )
         if not rows:
             raise KeyError(timeline_item_id)
         timeline_item = self.get_timeline_item(timeline_item_id)

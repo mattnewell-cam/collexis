@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+import httpx
 
 from backend.app.config import Settings
 from backend.app.database import connect, init_db
@@ -1470,3 +1471,99 @@ def test_supabase_compatibility_marks_sent_when_updated_at_changes() -> None:
     )
     assert sent_step["delivery_status"] == "sent"
     assert sent_step["sent_at"] == "2026-04-01T22:16:00+00:00"
+
+
+def test_supabase_timeline_create_retries_without_optional_fields_on_schema_cache_errors() -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeSupabaseRepository(SupabaseDocumentRepository):
+        def __init__(self) -> None:
+            pass
+
+        def _rest_request(self, method: str, table: str, **kwargs: object) -> list[dict[str, object]]:
+            _ = table
+            payload = dict(kwargs["json_body"])  # type: ignore[index]
+            calls.append(payload)
+            if len(calls) == 1:
+                request = httpx.Request(method, "https://example.supabase.co/rest/v1/timeline_items")
+                response = httpx.Response(
+                    400,
+                    request=request,
+                    json={"message": "Could not find the 'recipient' column of 'timeline_items' in the schema cache."},
+                )
+                raise httpx.HTTPStatusError("Bad Request", request=request, response=response)
+            return [payload]
+
+    repository = FakeSupabaseRepository()
+
+    created = repository.create_timeline_item(
+        job_id="job-123",
+        category="conversation",
+        subtype="email",
+        sender="collexis",
+        recipient="debtor",
+        date="2026-04-02",
+        short_description="Payment reply",
+        details="Customer replied to say funds will clear tomorrow.",
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["recipient"] == "debtor"
+    assert "recipient" not in calls[1]
+    assert created["recipient"] is None
+
+
+def test_supabase_timeline_update_retries_without_optional_fields_on_schema_cache_errors() -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeSupabaseRepository(SupabaseDocumentRepository):
+        def __init__(self) -> None:
+            pass
+
+        def _rest_request(self, method: str, table: str, **kwargs: object) -> list[dict[str, object]]:
+            _ = table
+            payload = dict(kwargs["json_body"])  # type: ignore[index]
+            calls.append(payload)
+            if len(calls) == 1:
+                request = httpx.Request(method, "https://example.supabase.co/rest/v1/timeline_items")
+                response = httpx.Response(
+                    400,
+                    request=request,
+                    json={"message": "Could not find the 'recipient' column of 'timeline_items' in the schema cache."},
+                )
+                raise httpx.HTTPStatusError("Bad Request", request=request, response=response)
+            return [{"id": "timeline-1"}]
+
+        def get_timeline_item(self, timeline_item_id: str) -> dict[str, object]:
+            return {
+                "id": timeline_item_id,
+                "job_id": "job-123",
+                "category": "conversation",
+                "subtype": "email",
+                "sender": "collexis",
+                "recipient": None,
+                "date": "2026-04-02",
+                "short_description": "Payment reply",
+                "details": "Updated details",
+                "response_classification": None,
+                "response_action": None,
+                "stated_deadline": None,
+                "computed_deadline": None,
+                "created_at": datetime.fromisoformat("2026-04-02T08:00:00+00:00"),
+                "updated_at": datetime.fromisoformat("2026-04-02T08:05:00+00:00"),
+                "linked_document_ids": [],
+            }
+
+    repository = FakeSupabaseRepository()
+
+    updated = repository.update_timeline_item(
+        "timeline-1",
+        details="Updated details",
+        recipient="debtor",
+    )
+
+    assert len(calls) == 2
+    assert calls[0]["recipient"] == "debtor"
+    assert calls[1]["details"] == "Updated details"
+    assert "recipient" not in calls[1]
+    assert updated["details"] == "Updated details"

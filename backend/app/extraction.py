@@ -11,6 +11,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Callable
 
+import httpx
 from openai import OpenAI
 
 from .config import Settings
@@ -53,6 +54,27 @@ CHASE_SUBTYPES = {"email", "sms", "whatsapp", "facebook", "voicemail", "home-vis
 CONVERSATION_SUBTYPES = {"email", "sms", "whatsapp", "facebook", "phone", "in-person"}
 DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 logger = logging.getLogger(__name__)
+TECHNICAL_PROCESSING_ERROR_PATTERNS = (
+    re.compile(r"client error\b", re.IGNORECASE),
+    re.compile(r"server error\b", re.IGNORECASE),
+    re.compile(r"for url\b", re.IGNORECASE),
+    re.compile(r"https?://", re.IGNORECASE),
+    re.compile(r"schema cache\b", re.IGNORECASE),
+)
+
+
+def user_facing_processing_error(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message and not any(pattern.search(message) for pattern in TECHNICAL_PROCESSING_ERROR_PATTERNS):
+        return message
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        return (
+            "We couldn't add this document to the timeline automatically. "
+            "Please review it manually or try uploading it again."
+        )
+
+    return "We couldn't process this document. Please try uploading it again or review it manually."
 
 
 @lru_cache(maxsize=1)
@@ -1251,7 +1273,7 @@ def process_document(
         repository.update_fields(
             document_id,
             status="failed",
-            extraction_error=str(exc).strip() or "Document extraction failed.",
+            extraction_error=user_facing_processing_error(exc),
         )
         log_event(
             logger,

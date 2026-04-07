@@ -1,9 +1,11 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import JobsTable from '@/components/JobsTable';
 import { runClientAction } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
+import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import { Job } from '@/types/job';
 
 interface Props {
@@ -13,6 +15,7 @@ interface Props {
 const isOutstandingJob = (job: Job) => job.status !== 'Paid' && job.status !== 'Abandoned';
 
 export default function ConsoleJobsView({ initialJobs }: Props) {
+  const router = useRouter();
   const [jobs, setJobs] = useState(initialJobs);
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -29,6 +32,8 @@ export default function ConsoleJobsView({ initialJobs }: Props) {
   const handleDeleteJob = async (job: Job) => {
     setDeleteError(null);
     setDeletingJobId(job.id);
+    const previousJobs = jobs;
+    setJobs(currentJobs => currentJobs.filter(currentJob => currentJob.id !== job.id));
 
     try {
       return await runClientAction('jobs.delete', async trace => {
@@ -45,13 +50,14 @@ export default function ConsoleJobsView({ initialJobs }: Props) {
           throw new Error(payload?.error ?? 'Could not delete job.');
         }
 
-        setJobs(currentJobs => currentJobs.filter(currentJob => currentJob.id !== job.id));
+        router.refresh();
         return true;
       }, {
         jobId: job.id,
       });
     } catch (error) {
-      setDeleteError(error instanceof Error ? error.message : 'Could not delete job.');
+      setJobs(previousJobs);
+      setDeleteError(toUserFacingErrorMessage(error, 'Could not delete job.'));
       return false;
     } finally {
       setDeletingJobId(currentId => (currentId === job.id ? null : currentId));

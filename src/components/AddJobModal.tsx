@@ -6,6 +6,7 @@ import { mergeJobWithIntakeSummary } from '@/lib/jobStore';
 import { documentBackendPath } from '@/lib/documentBackend';
 import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
+import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import type { Job, JobIntakeSummary } from '@/types/job';
 
 interface Props {
@@ -39,6 +40,35 @@ function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary 
 
 function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+function formatFailedDocumentMessage(
+  failedDocuments: Array<{ original_filename: string; extraction_error: string | null }>,
+) {
+  if (failedDocuments.length === 0) {
+    return 'We could not finish processing the uploaded documents.';
+  }
+
+  if (failedDocuments.length === 1) {
+    const [failedDocument] = failedDocuments;
+    const reason = failedDocument.extraction_error
+      ? toUserFacingErrorMessage(
+        failedDocument.extraction_error,
+        'We could not add this document to the timeline automatically.',
+      )
+      : null;
+    if (reason) {
+      return `We couldn't finish processing ${failedDocument.original_filename}. ${reason}`;
+    }
+    return `We couldn't finish processing ${failedDocument.original_filename}. Please try uploading it again or review it manually.`;
+  }
+
+  const failedNames = failedDocuments
+    .slice(0, 2)
+    .map(document => document.original_filename)
+    .join(', ');
+  const suffix = failedDocuments.length > 2 ? ', and others' : '';
+  return `We couldn't finish processing ${failedDocuments.length} documents, including ${failedNames}${suffix}. Please try those uploads again or review them manually.`;
 }
 
 export default function AddJobModal({ open, onClose }: Props) {
@@ -106,7 +136,12 @@ export default function AddJobModal({ open, onClose }: Props) {
         throw new Error('Could not check document processing.');
       }
 
-      const payload = await response.json() as Array<{ id: string; status: 'processing' | 'ready' | 'failed' }>;
+      const payload = await response.json() as Array<{
+        id: string;
+        status: 'processing' | 'ready' | 'failed';
+        original_filename: string;
+        extraction_error: string | null;
+      }>;
       const trackedDocuments = payload.filter(document => documentIds.includes(document.id));
       const settledDocuments = trackedDocuments.filter(document => document.status !== 'processing');
       const failedDocuments = trackedDocuments.filter(document => document.status === 'failed');
@@ -117,6 +152,9 @@ export default function AddJobModal({ open, onClose }: Props) {
       );
 
       if (trackedDocuments.length === documentIds.length && settledDocuments.length === documentIds.length) {
+        if (failedDocuments.length > 0) {
+          throw new Error(formatFailedDocumentMessage(failedDocuments));
+        }
         return;
       }
 
@@ -245,7 +283,7 @@ export default function AddJobModal({ open, onClose }: Props) {
         documentCount: files.length,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Could not complete the intake processing.';
+      const message = toUserFacingErrorMessage(error, 'Could not complete the intake processing.');
       setPhase('processing');
       setProcessingTitle('Processing interrupted');
       setProcessingDetail('You can close this window and try again.');

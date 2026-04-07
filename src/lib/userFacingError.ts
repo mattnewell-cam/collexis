@@ -11,11 +11,16 @@ const TECHNICAL_ERROR_PATTERNS = [
 ];
 
 export function toUserFacingErrorMessage(error: unknown, fallback: string): string {
-  if (!(error instanceof Error)) {
+  let message = '';
+
+  if (typeof error === 'string') {
+    message = error.trim();
+  } else if (error instanceof Error) {
+    message = error.message.trim();
+  } else {
     return fallback;
   }
 
-  const message = error.message.trim();
   if (!message) {
     return fallback;
   }

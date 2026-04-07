@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Communication } from '@/types/communication';
 import { DocumentRecord } from '@/types/document';
 import { parseCommunicationDate } from '@/lib/communicationDates';
+import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import { getCategoryDef, getRecipientLabel, getSenderLabel, getSubtypeLabel } from './categoryConfig';
 
 interface Props {
@@ -95,7 +96,7 @@ export default function TimelineItem({
       setPickerExpanded(false);
       setDocumentsExpanded(true);
     } catch (error) {
-      setDocumentsError(error instanceof Error ? error.message : 'Could not relate document.');
+      setDocumentsError(toUserFacingErrorMessage(error, 'Could not relate document.'));
     } finally {
       setIsLinking(false);
     }
@@ -110,7 +111,7 @@ export default function TimelineItem({
       await onUploadDocuments(comm, files);
       setDocumentsExpanded(true);
     } catch (error) {
-      setDocumentsError(error instanceof Error ? error.message : 'Could not upload documents.');
+      setDocumentsError(toUserFacingErrorMessage(error, 'Could not upload documents.'));
     } finally {
       setIsUploading(false);
     }
