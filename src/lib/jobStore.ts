@@ -280,9 +280,6 @@ export function mergeJobWithIntakeSummary(job: Job, summary: JobIntakeSummary, r
   if (summary.phones.length > 0)
     nextJob.phones = uniqueNonEmpty([...nextJob.phones, ...summary.phones]);
 
-  if (isBlankString(nextJob.contextInstructions) && !isBlankString(summary.contextInstructions))
-    nextJob.contextInstructions = summary.contextInstructions.trim();
-
   return nextJob;
 }
 
@@ -290,7 +287,6 @@ export function refreshJobFromIntakeSummary(job: Job, summary: JobIntakeSummary,
   const nextJob = mergeJobWithIntakeSummary(job, summary, referenceDate);
 
   nextJob.jobDetail = mergeTextBlock(nextJob.jobDetail, summary.jobDetail);
-  nextJob.contextInstructions = mergeTextBlock(nextJob.contextInstructions, summary.contextInstructions);
 
   return nextJob;
 }
@@ -313,6 +309,6 @@ export function applyReviewedJobIntakeSummary(job: Job, summary: JobIntakeSummar
     daysOverdue: calculateDaysOverdue(dueDate, referenceDate),
     emails: summary.emails.length > 0 ? uniqueNonEmpty([...job.emails, ...summary.emails]) : job.emails,
     phones: summary.phones.length > 0 ? uniqueNonEmpty([...job.phones, ...summary.phones]) : job.phones,
-    contextInstructions: chooseReviewedText(job.contextInstructions, summary.contextInstructions),
+    contextInstructions: job.contextInstructions,
   };
 }

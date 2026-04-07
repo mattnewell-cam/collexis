@@ -95,6 +95,21 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+function FieldLabelRow({
+  label,
+  warning,
+}: {
+  label: string;
+  warning?: string | null;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <label className="text-xs font-medium text-gray-500">{label}</label>
+      {warning ? <span className="text-xs font-medium text-rose-600">{warning}</span> : null}
+    </div>
+  );
+}
+
 function SectionCard({
   title,
   children,
@@ -161,6 +176,8 @@ export default function JobDetailsForm({ job }: { job: Job }) {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [showProcessedNotice, setShowProcessedNotice] = useState(searchParams.get('notice') === 'docs-processed');
+  const hasPhoneNumber = draft.phones.some(phone => phone.trim().length > 0);
+  const hasAddress = draft.address.trim().length > 0;
 
   const set = <K extends keyof Job>(key: K, value: Job[K]) =>
     setDraft(d => ({ ...d, [key]: value }));
@@ -317,17 +334,19 @@ export default function JobDetailsForm({ job }: { job: Job }) {
             <Field label="Email addresses">
               <TagListEditor values={draft.emails} onChange={v => set('emails', v)} placeholder="Add email, press Enter" />
             </Field>
-            <Field label="Phone numbers">
+            <div className="space-y-1.5">
+              <FieldLabelRow label="Phone numbers" warning={!hasPhoneNumber ? 'No phone number added' : null} />
               <TagListEditor values={draft.phones} onChange={v => set('phones', v)} placeholder="Add phone, press Enter" />
-            </Field>
-            <Field label="Address">
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabelRow label="Address" warning={!hasAddress ? 'No address added' : null} />
               <input
                 className={inputCls}
                 value={draft.address}
                 onChange={e => set('address', e.target.value)}
                 placeholder="Add address"
               />
-            </Field>
+            </div>
           </SectionCard>
 
           <SectionCard title="Context / Instructions" className="h-full" bodyClassName="flex h-full flex-col">

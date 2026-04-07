@@ -34,7 +34,7 @@ function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary 
     amountPaid: summary.amount_paid,
     emails: summary.emails,
     phones: summary.phones,
-    contextInstructions: summary.context_instructions,
+    contextInstructions: '',
   };
 }
 

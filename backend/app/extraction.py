@@ -168,7 +168,7 @@ def build_job_intake_summary_prompt() -> str:
         "amount_paid: amount already paid if clearly stated, otherwise null. "
         "emails: distinct customer/client/debtor email addresses only. "
         "phones: distinct customer/client/debtor phone numbers only. "
-        "context_instructions: concise internal collection notes, max 35 words. "
+        "context_instructions: always return an empty string because this field is user-managed, not auto-filled. "
         "Do not repeat the creditor's contact details, business address, or long invoice line items. "
         "Do not invent missing details."
     )
@@ -198,7 +198,7 @@ def build_job_intake_review_prompt() -> str:
         "amount_paid: keep the current value unless the new documents clearly establish a different paid amount. "
         "emails: distinct debtor/client email addresses only. "
         "phones: distinct debtor/client phone numbers only. "
-        "context_instructions: internal collection notes. Preserve existing instructions unless the new documents add useful new context or operating constraints. "
+        "context_instructions: always return the current value unchanged because this field is user-managed, not auto-filled. "
         "Do not invent missing details."
     )
 
@@ -539,14 +539,6 @@ def filter_external_contacts(values: list[str], *, kind: str) -> list[str]:
 
 
 def normalize_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
-    company_context = load_company_context()
-    context_text = summary.context_instructions.strip()
-    for business_email in company_context["emails"]:
-        context_text = context_text.replace(str(business_email), "")
-    for business_phone in company_context["phones"]:
-        context_text = context_text.replace(str(business_phone), "")
-    context_text = re.sub(r"\s{2,}", " ", context_text).strip(" ,;")
-
     return JobIntakeSummary(
         job_description=summary.job_description.strip(),
         job_detail=summary.job_detail.strip(),
@@ -555,7 +547,7 @@ def normalize_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
         amount_paid=summary.amount_paid,
         emails=filter_external_contacts(summary.emails, kind="email"),
         phones=filter_external_contacts(summary.phones, kind="phone"),
-        context_instructions=limit_words(context_text, 35),
+        context_instructions="",
     )
 
 
@@ -568,7 +560,7 @@ def normalize_reviewed_job_intake_summary(summary: JobIntakeSummary) -> JobIntak
         amount_paid=summary.amount_paid,
         emails=filter_external_contacts(summary.emails, kind="email"),
         phones=filter_external_contacts(summary.phones, kind="phone"),
-        context_instructions=summary.context_instructions.strip(),
+        context_instructions="",
     )
 
 
