@@ -236,7 +236,13 @@ function jobChanged(current: Job, next: Job) {
 }
 
 export default function JobDocumentsView({ jobId }: { jobId: string }) {
-  const { job, setJob, documents: cachedDocuments, setDocuments: setCachedDocuments } = useJobRouteCache();
+  const {
+    job,
+    setJob,
+    isBundlePrefetching,
+    documents: cachedDocuments,
+    setDocuments: setCachedDocuments,
+  } = useJobRouteCache();
   const inputRef = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestDocuments = useRef<EditableDocumentRecord[]>([]);
@@ -339,8 +345,12 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
       return;
     }
 
+    if (isBundlePrefetching) {
+      return;
+    }
+
     void fetchDocuments(true);
-  }, [cachedDocuments.loaded, fetchDocuments]);
+  }, [cachedDocuments.loaded, fetchDocuments, isBundlePrefetching]);
 
   useEffect(() => {
     if (!hasProcessingDocuments) return;

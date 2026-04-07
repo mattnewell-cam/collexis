@@ -23,6 +23,7 @@
 
 ### UI
 - Job detail sub-routes now share cached job/documents/communications/outreach-plan state under the `[id]` layout, so switching tabs no longer cold-loads those panels every time.
+- After you click a job, the client now preloads that job's communications, documents, and outreach plan into a shared per-job cache so coming back to the same job can reuse the full bundle instead of re-fetching it page by page.
 - Uploading documents from an existing job now refreshes the job intake summary too, so the Details tab picks up newly extracted job detail, internal notes, and contact info instead of only adding a new document card.
 - Existing-job follow-up uploads now review the new documents against the current saved details/context/contact fields instead of regenerating and appending a fresh summary blob.
 - Manual timeline entries now use a stripped-back medium/date/details form, generate their short description with `gpt-5.4-nano`, and no longer expose Collexis-owned or system communication types for manual edit/delete.

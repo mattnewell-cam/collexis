@@ -165,6 +165,7 @@ export default function JobCommsView() {
   const {
     job,
     setJob,
+    isBundlePrefetching,
     communications: cachedCommunications,
     setCommunications: setCachedCommunications,
     documents: cachedDocuments,
@@ -358,18 +359,18 @@ export default function JobCommsView() {
     }
     if (cachedCommunications.loaded) {
       setLoading(false);
-    } else {
+    } else if (!isBundlePrefetching) {
       void loadComms();
     }
     if (cachedDocuments.loaded) {
       setDocuments(cachedDocuments.data);
-    } else {
+    } else if (!isBundlePrefetching) {
       void loadDocuments();
     }
     if (cachedOutreachPlan.loaded) {
       setPlanLoading(false);
       setPostNowSteps(cachedOutreachPlan.data);
-    } else {
+    } else if (!isBundlePrefetching) {
       void loadPlan();
     }
   }, [
@@ -378,6 +379,7 @@ export default function JobCommsView() {
     cachedDocuments.loaded,
     cachedOutreachPlan.data,
     cachedOutreachPlan.loaded,
+    isBundlePrefetching,
     jobState.id,
     loadComms,
     loadDocuments,

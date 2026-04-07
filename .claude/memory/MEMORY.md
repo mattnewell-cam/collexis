@@ -25,6 +25,7 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `windows_bug_autofix_runner_launch.md` - On Windows Store Codex installs, the autofix runner must launch `codex` through `cmd /c` because direct subprocess launches fail with WinError 5.
 - `whatsapp_backend_boundary.md` - WhatsApp sending now executes in the Python backend, with Next narrowed to auth, forwarding, and audit work.
 - `job_route_tab_cache.md` - Job sub-routes now share a client cache so documents/comms/outreach data persist across tab switches.
+- `job_bundle_prefetch_cache.md` - Opening a job now preloads the full visible comms/documents/outreach bundle into a shared per-job client cache for faster revisits.
 - `job_page_slowness_root_causes.md` - Job-page waits are amplified by per-request Supabase auth refresh, per-request outreach delivery-state detection in the backend repository, and duplicate client backend fetches during comms/documents flows.
 - `document_upload_details_refresh.md` - Existing-job document uploads now rerun intake summary so the Details tab picks up new detail/context/contact data.
 - `manual_communications_simplified.md` - Manual communication entries now use only medium/date/details and generate short timeline headlines with nano.
