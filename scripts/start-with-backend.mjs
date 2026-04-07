@@ -8,6 +8,8 @@ const nextBin = join(repoRoot, 'node_modules', 'next', 'dist', 'bin', 'next');
 const runtimeRoot = join(repoRoot, 'runtime');
 const defaultVenvDir = join(runtimeRoot, 'venvs', 'collexis');
 const defaultPycacheDir = join(runtimeRoot, 'pycache');
+const nextPort = process.env.PORT || '3000';
+const nextHost = process.env.NEXT_HOST || process.env.HOST || '0.0.0.0';
 
 function resolveRepoPath(value, fallback) {
   if (!value) return fallback;
@@ -98,7 +100,7 @@ try {
 
 nextProcess = spawn(
   process.execPath,
-  [nextBin, 'start'],
+  [nextBin, 'start', '-p', nextPort, '-H', nextHost],
   {
     cwd: repoRoot,
     stdio: 'inherit',

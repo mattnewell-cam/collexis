@@ -59,6 +59,25 @@ function normalizeError(entry: LogEntry) {
   }
 }
 
+function normalizePersistedSource(entry: LogEntry) {
+  if (entry.source === 'proxy' || entry.source === 'server-component') {
+    return 'next-api';
+  }
+
+  return entry.source;
+}
+
+function normalizePersistedContext(entry: LogEntry) {
+  if (entry.source !== 'proxy' && entry.source !== 'server-component') {
+    return entry.context ?? null;
+  }
+
+  return {
+    ...(entry.context ?? {}),
+    originalSource: entry.source,
+  };
+}
+
 export async function persistLogEntry(entry: LogEntry) {
   if (typeof window !== 'undefined' || process.env.NODE_ENV === 'test') {
     return;
@@ -81,12 +100,12 @@ export async function persistLogEntry(entry: LogEntry) {
       body: JSON.stringify({
         timestamp: entry.timestamp,
         level: entry.level,
-        source: entry.source,
+        source: normalizePersistedSource(entry),
         event: entry.event,
         request_id: entry.requestId ?? null,
         action_id: entry.actionId ?? null,
         session_id: entry.sessionId ?? null,
-        context: entry.context ?? null,
+        context: normalizePersistedContext(entry),
         error: normalizeError(entry),
       }),
       cache: 'no-store',

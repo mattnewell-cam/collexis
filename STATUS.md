@@ -29,6 +29,7 @@
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
 - `npm run dev` now boots the Python backend alongside Next, so the local documents/timeline features come up on ports `8000` and `3000` together by default.
+- Production log persistence now tolerates `proxy` and `server-component` sources against the legacy `app_logs` schema, and the start script binds Next to `0.0.0.0` for Render more explicitly.
 - WhatsApp sending now reuses a populated legacy root `.playwright-profile` automatically if present, so older authenticated Playwright sessions still work after the runtime cleanup.
 - Starter/sample jobs now lazily backfill their missing communications timeline into Supabase when the communications page opens, so seeded accounts no longer show empty sample timelines.
 - Optional bug triage now watches persistent `app_logs`, groups distinct failures into `bug_incidents`, asks OpenAI whether each looks like a real bug or a transient issue, and now ships with a Codex handoff runner that can push a fix branch and open a draft PR.
