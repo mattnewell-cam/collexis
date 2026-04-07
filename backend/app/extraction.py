@@ -17,7 +17,13 @@ from openai import OpenAI
 from .config import Settings
 from .logging_utils import log_event
 from .repository import DocumentRepository, filename_stem
-from .schemas import ExtractedDocument, JobIntakeSummary, ProcessingProfile, TimelineDecision
+from .schemas import (
+    ExtractedDocument,
+    JobIntakeSummary,
+    ProcessingProfile,
+    TimelineDecision,
+    TimelineShortDescriptionResponse,
+)
 
 
 SUPPORTED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
@@ -27,6 +33,7 @@ DEFAULT_EXTRACTION_MODEL = "gpt-5.4-nano"
 JOB_INTAKE_EXTRACTION_MODEL = "gpt-5.4-mini"
 TIMELINE_PLANNING_MODEL = "gpt-5.4-mini"
 JOB_INTAKE_SUMMARY_MODEL = "gpt-5.4-mini"
+TIMELINE_SHORT_DESCRIPTION_MODEL = "gpt-5.4-nano"
 TIMELINE_PLANNING_PROMPT = (
     "You are deciding how an uploaded document should map onto a debt-recovery timeline. "
     "Return only the schema. "
@@ -170,6 +177,101 @@ def limit_words(text: str, max_words: int) -> str:
     if len(words) <= max_words:
         return text.strip()
     return " ".join(words[:max_words]).strip()
+
+
+def fallback_timeline_short_description(details: str, *, subtype: str | None = None) -> str:
+    normalized = re.sub(r"\s+", " ", details).strip(" .,:;!-")
+    if not normalized:
+        return "Manual update"
+
+    words = normalized.split()
+    summary = " ".join(words[:6]).strip(" .,:;!-")
+    if subtype:
+        medium_label = subtype.replace("-", " ").title()
+        summary = f"{medium_label}: {summary}".strip()
+    return limit_words(summary or "Manual update", 8)
+
+
+def build_timeline_short_description_prompt() -> str:
+    return (
+        "Write a short debt-recovery timeline headline from the user's details. "
+        "Return only the schema. "
+        "The headline must be 2 to 8 words, concrete, and suitable for a timeline card. "
+        "Do not mention Collexis unless the details explicitly say Collexis acted. "
+        "Do not invent legal escalation, handovers, letters, or recipients. "
+        "Prefer the communication medium when helpful. "
+        "Avoid punctuation unless needed."
+    )
+
+
+def summarize_timeline_details(
+    details: str,
+    settings: Settings,
+    *,
+    subtype: str | None = None,
+) -> str:
+    normalized_details = re.sub(r"\s+", " ", details).strip()
+    if not normalized_details:
+        return "Manual update"
+
+    if not settings.openai_api_key:
+        return fallback_timeline_short_description(normalized_details, subtype=subtype)
+
+    payload = {
+        "subtype": subtype,
+        "details": normalized_details,
+    }
+    client = OpenAI(api_key=settings.openai_api_key)
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="timeline.short_description",
+        model=TIMELINE_SHORT_DESCRIPTION_MODEL,
+        subtype=subtype,
+        details_length=len(normalized_details),
+    )
+    try:
+        response = client.responses.parse(
+            model=TIMELINE_SHORT_DESCRIPTION_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": build_timeline_short_description_prompt()},
+                        {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                }
+            ],
+            text_format=TimelineShortDescriptionResponse,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.WARNING,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="timeline.short_description",
+            model=TIMELINE_SHORT_DESCRIPTION_MODEL,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            subtype=subtype,
+            error=exc,
+        )
+        return fallback_timeline_short_description(normalized_details, subtype=subtype)
+
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="timeline.short_description",
+        model=TIMELINE_SHORT_DESCRIPTION_MODEL,
+        duration_ms=int((perf_counter() - started_at) * 1000),
+        subtype=subtype,
+    )
+    return limit_words(response.output_parsed.short_description.strip() or "Manual update", 8)
 
 
 def canonicalize_sender(sender: str, *, company_name: str, company_short_name: str) -> str:

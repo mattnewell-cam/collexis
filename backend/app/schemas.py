@@ -152,6 +152,15 @@ class TimelineItemUpdate(BaseModel):
     details: str | None = None
 
 
+class TimelineShortDescriptionRequest(BaseModel):
+    details: str
+    subtype: TimelineSubtype | None = None
+
+
+class TimelineShortDescriptionResponse(BaseModel):
+    short_description: str
+
+
 class TimelineCommunicationDraft(BaseModel):
     category: TimelineCategory
     subtype: TimelineSubtype | None = None

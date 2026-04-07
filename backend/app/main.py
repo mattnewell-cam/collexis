@@ -16,7 +16,13 @@ from fastapi.responses import JSONResponse, Response
 from .brevo_email import brevo_configuration_error
 from .config import Settings
 from .database import init_db
-from .extraction import SUPPORTED_EXTENSIONS, normalize_iso_date, process_document, summarize_job_intake
+from .extraction import (
+    SUPPORTED_EXTENSIONS,
+    normalize_iso_date,
+    process_document,
+    summarize_job_intake,
+    summarize_timeline_details,
+)
 from .inbound_email_job_inference import infer_inbound_email_job
 from .intake_chat import IntakeChatRequest, run_intake_chat
 from .logging_utils import (
@@ -56,6 +62,8 @@ from .schemas import (
     WhatsAppSendResponse,
     TimelineItemCreate,
     TimelineItemResponse,
+    TimelineShortDescriptionRequest,
+    TimelineShortDescriptionResponse,
     TimelineItemUpdate,
 )
 from .whatsapp_sender import playwright_whatsapp_configuration_error, send_playwright_whatsapp_messages
@@ -690,6 +698,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             details=payload.details,
         )
         return TimelineItemResponse.model_validate(created)
+
+    @app.post("/jobs/{job_id}/timeline-short-description", response_model=TimelineShortDescriptionResponse)
+    def generate_timeline_short_description(
+        job_id: str,
+        payload: TimelineShortDescriptionRequest,
+    ) -> TimelineShortDescriptionResponse:
+        return TimelineShortDescriptionResponse(
+            short_description=summarize_timeline_details(
+                payload.details,
+                app.state.settings,
+                subtype=payload.subtype,
+            )
+        )
 
     @app.post("/jobs/{job_id}/send-whatsapp", response_model=WhatsAppSendResponse)
     def send_job_whatsapp(job_id: str, payload: WhatsAppSendRequest) -> WhatsAppSendResponse:

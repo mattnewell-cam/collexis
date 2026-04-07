@@ -495,6 +495,7 @@ export default function JobCommsView() {
       setPageError(null);
     } catch (error) {
       setPageError(errorMessage(error, 'Could not save communication.'));
+      throw error;
     }
   }, [editingComm, jobState.id, upsertComm]);
 
@@ -777,8 +778,7 @@ export default function JobCommsView() {
             key={editingComm?.id ?? `new-${jobState.id}`}
             job={jobState}
             editing={editingComm}
-            onSave={comm => { void handleSave(comm); }}
-            onSent={upsertComm}
+            onSave={handleSave}
             onCancelEdit={() => setEditingComm(null)}
           />
         </aside>

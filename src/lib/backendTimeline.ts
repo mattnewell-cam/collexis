@@ -23,6 +23,10 @@ export type ApiTimelineItem = {
   updated_at: string;
 };
 
+type TimelineShortDescriptionResponse = {
+  short_description: string;
+};
+
 export interface DeleteTimelineItemInput {
   id: string;
   jobId: string;
@@ -93,6 +97,32 @@ export async function createTimelineItem(jobId: string, comm: Communication, tra
   });
   ensureResponseOk(response, 'Could not create timeline item.');
   return mapApiTimelineItem(await response.json() as ApiTimelineItem);
+}
+
+export async function generateTimelineShortDescription(
+  jobId: string,
+  input: { details: string; subtype?: Communication['subtype'] },
+  trace?: TraceContext,
+): Promise<string> {
+  const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/timeline-short-description`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      details: input.details,
+      subtype: input.subtype ?? null,
+    }),
+  }, {
+    name: 'timeline.generate_short_description',
+    context: {
+      jobId,
+      subtype: input.subtype ?? null,
+      detailsLength: input.details.trim().length,
+    },
+    trace,
+  });
+  ensureResponseOk(response, 'Could not generate communication summary.');
+  const payload = await response.json() as TimelineShortDescriptionResponse;
+  return payload.short_description;
 }
 
 export async function updateTimelineItem(comm: Communication, trace?: TraceContext): Promise<Communication> {

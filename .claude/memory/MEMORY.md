@@ -21,3 +21,4 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `whatsapp_backend_boundary.md` - WhatsApp sending now executes in the Python backend, with Next narrowed to auth, forwarding, and audit work.
 - `job_route_tab_cache.md` - Job sub-routes now share a client cache so documents/comms/outreach data persist across tab switches.
 - `document_upload_details_refresh.md` - Existing-job document uploads now rerun intake summary so the Details tab picks up new detail/context/contact data.
+- `manual_communications_simplified.md` - Manual communication entries now use only medium/date/details and generate short timeline headlines with nano.
