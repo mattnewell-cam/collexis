@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.config import DEFAULT_DATA_DIR, REPO_ROOT, Settings
+from backend.app.config import DEFAULT_BUG_AUTOFIX_RUNNER, DEFAULT_DATA_DIR, REPO_ROOT, Settings
 
 
 def test_settings_from_env_uses_runtime_backend_data_by_default(monkeypatch) -> None:
@@ -19,3 +19,11 @@ def test_settings_from_env_resolves_relative_data_dir_from_repo_root(monkeypatch
     settings = Settings.from_env()
 
     assert settings.data_dir == (REPO_ROOT / "runtime/backend-data/sandboxes/test-run").resolve()
+
+
+def test_settings_from_env_uses_repo_bug_autofix_runner_by_default(monkeypatch) -> None:
+    monkeypatch.delenv("BUG_AUTOFIX_RUNNER", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.bug_autofix_runner == DEFAULT_BUG_AUTOFIX_RUNNER.resolve()

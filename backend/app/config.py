@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_LOCAL_PATH = REPO_ROOT / ".env.local"
 DEFAULT_DATA_DIR = Path("runtime/backend-data/default")
 DEFAULT_BUG_AUTOFIX_ARTIFACTS_DIR = Path("runtime/bug-autofix")
+DEFAULT_BUG_AUTOFIX_RUNNER = REPO_ROOT / "scripts" / "bug_autofix_runner.py"
 
 
 def load_local_env() -> None:
@@ -62,6 +63,7 @@ class Settings:
         load_local_env()
         data_dir = resolve_repo_path(os.getenv("COLLEXIS_DATA_DIR", str(DEFAULT_DATA_DIR)))
         bug_autofix_runner = (os.getenv("BUG_AUTOFIX_RUNNER") or "").strip()
+        default_bug_autofix_runner = DEFAULT_BUG_AUTOFIX_RUNNER.resolve() if DEFAULT_BUG_AUTOFIX_RUNNER.exists() else None
         return cls(
             data_dir=data_dir,
             database_path=data_dir / "documents.sqlite3",
@@ -84,7 +86,7 @@ class Settings:
                 max(float(os.getenv("BUG_TRIAGE_AUTOFIX_MIN_CONFIDENCE", "0.82")), 0.0),
                 1.0,
             ),
-            bug_autofix_runner=Path(bug_autofix_runner).expanduser() if bug_autofix_runner else None,
+            bug_autofix_runner=Path(bug_autofix_runner).expanduser() if bug_autofix_runner else default_bug_autofix_runner,
             bug_autofix_repo_path=resolve_repo_path(os.getenv("BUG_AUTOFIX_REPO_PATH", str(REPO_ROOT))),
             bug_autofix_artifacts_dir=resolve_repo_path(
                 os.getenv("BUG_AUTOFIX_ARTIFACTS_DIR", str(DEFAULT_BUG_AUTOFIX_ARTIFACTS_DIR))

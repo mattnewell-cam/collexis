@@ -23,9 +23,12 @@ Requirements:
 
 ## Optional autofix handoff
 
-If `BUG_AUTOFIX_RUNNER` is set, incidents that the model marks as `draft_pr` with confidence at or above `BUG_TRIAGE_AUTOFIX_MIN_CONFIDENCE` move into `autofix_pending` and are handed to that runner.
+If the built-in runner exists in the repo, incidents that the model marks as `draft_pr` with confidence at or above `BUG_TRIAGE_AUTOFIX_MIN_CONFIDENCE` move into `autofix_pending` and are handed to it automatically.
 
 This repo now includes a concrete runner at `scripts/bug_autofix_runner.py`.
+
+You do not need to set `BUG_AUTOFIX_RUNNER` just to use that built-in runner.
+Only set `BUG_AUTOFIX_RUNNER` if you want to override it with a different script or command.
 
 Supported runner values:
 
@@ -33,10 +36,10 @@ Supported runner values:
 - an absolute path
 - a PATH command like `codex`
 
-Optional settings:
+Optional overrides:
 
 ```env
-BUG_AUTOFIX_RUNNER=scripts/bug_autofix_runner.py
+BUG_AUTOFIX_RUNNER=scripts/my_custom_autofix_runner.py
 BUG_AUTOFIX_REPO_PATH=.
 BUG_AUTOFIX_ARTIFACTS_DIR=runtime/bug-autofix
 BUG_AUTOFIX_TIMEOUT_SECONDS=1800
