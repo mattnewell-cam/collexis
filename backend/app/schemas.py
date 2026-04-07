@@ -96,6 +96,24 @@ class JobIntakeSummary(BaseModel):
     context_instructions: str = Field(default="")
 
 
+class ExistingJobSnapshot(BaseModel):
+    name: str = Field(default="")
+    address: str = Field(default="")
+    job_description: str = Field(default="")
+    job_detail: str = Field(default="")
+    due_date: str | None = None
+    price: float | None = None
+    amount_paid: float | None = None
+    emails: list[str] = Field(default_factory=list)
+    phones: list[str] = Field(default_factory=list)
+    context_instructions: str = Field(default="")
+
+
+class JobIntakeReviewRequest(BaseModel):
+    current_job: ExistingJobSnapshot
+    document_ids: list[str] = Field(default_factory=list)
+
+
 class ExtractedMessage(BaseModel):
     sender: str = Field(default="")
     datetime: str | None = None

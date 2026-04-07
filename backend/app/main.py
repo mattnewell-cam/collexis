@@ -21,6 +21,7 @@ from .extraction import (
     SUPPORTED_EXTENSIONS,
     normalize_iso_date,
     process_document,
+    review_job_intake_updates,
     summarize_job_intake,
     summarize_timeline_details,
 )
@@ -48,6 +49,7 @@ from .schemas import (
     DebtorResponseActionResult,
     DocumentResponse,
     DocumentUpdate,
+    JobIntakeReviewRequest,
     InboundEmailJobInferenceRequest,
     InboundEmailJobInferenceResponse,
     InboundEmailReplyRequest,
@@ -190,6 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = app_settings
     app.state.document_processor = process_document
     app.state.job_intake_summarizer = summarize_job_intake
+    app.state.job_intake_update_reviewer = review_job_intake_updates
     app.state.outreach_plan_generator = generate_outreach_plan
     app.state.outreach_plan_draft_ensurer = ensure_outreach_plan_drafts
     app.state.inbound_email_job_inferer = infer_inbound_email_job
@@ -304,6 +307,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def get_job_intake_summary(job_id: str) -> JobIntakeSummary:
         summarizer: Callable[[str, Settings], JobIntakeSummary] = app.state.job_intake_summarizer
         return summarizer(job_id, app.state.settings)
+
+    @app.post("/jobs/{job_id}/intake-summary/review", response_model=JobIntakeSummary)
+    def review_job_intake_summary(job_id: str, request: JobIntakeReviewRequest) -> JobIntakeSummary:
+        reviewer: Callable[[str, JobIntakeReviewRequest, Settings], JobIntakeSummary] = app.state.job_intake_update_reviewer
+        return reviewer(job_id, request, app.state.settings)
 
     @app.delete("/jobs/{job_id}", response_model=JobDeleteResponse)
     def delete_job(job_id: str) -> JobDeleteResponse:

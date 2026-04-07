@@ -294,3 +294,25 @@ export function refreshJobFromIntakeSummary(job: Job, summary: JobIntakeSummary,
 
   return nextJob;
 }
+
+function chooseReviewedText(currentValue: string, reviewedValue: string) {
+  const trimmedReviewedValue = reviewedValue.trim();
+  return trimmedReviewedValue || currentValue;
+}
+
+export function applyReviewedJobIntakeSummary(job: Job, summary: JobIntakeSummary, referenceDate = new Date()): Job {
+  const dueDate = summary.dueDate || job.dueDate;
+
+  return {
+    ...job,
+    jobDescription: chooseReviewedText(job.jobDescription, summary.jobDescription),
+    jobDetail: chooseReviewedText(job.jobDetail, summary.jobDetail),
+    dueDate,
+    price: summary.price ?? job.price,
+    amountPaid: summary.amountPaid ?? job.amountPaid,
+    daysOverdue: calculateDaysOverdue(dueDate, referenceDate),
+    emails: summary.emails.length > 0 ? uniqueNonEmpty([...job.emails, ...summary.emails]) : job.emails,
+    phones: summary.phones.length > 0 ? uniqueNonEmpty([...job.phones, ...summary.phones]) : job.phones,
+    contextInstructions: chooseReviewedText(job.contextInstructions, summary.contextInstructions),
+  };
+}

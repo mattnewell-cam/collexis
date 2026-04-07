@@ -18,7 +18,9 @@ from .config import Settings
 from .logging_utils import log_event
 from .repository import DocumentRepository, filename_stem
 from .schemas import (
+    ExistingJobSnapshot,
     ExtractedDocument,
+    JobIntakeReviewRequest,
     JobIntakeSummary,
     ProcessingProfile,
     TimelineDecision,
@@ -168,6 +170,35 @@ def build_job_intake_summary_prompt() -> str:
         "phones: distinct customer/client/debtor phone numbers only. "
         "context_instructions: concise internal collection notes, max 35 words. "
         "Do not repeat the creditor's contact details, business address, or long invoice line items. "
+        "Do not invent missing details."
+    )
+
+
+def build_job_intake_review_prompt() -> str:
+    company_context = load_company_context()
+    company_name = str(company_context["name"])
+    business_emails = ", ".join(str(email) for email in company_context["emails"]) or "none"
+    business_phones = ", ".join(str(phone) for phone in company_context["phones"]) or "none"
+    return (
+        "Review an existing debt-recovery job after follow-up documents were uploaded. Return only the schema. "
+        "You are given the current saved job fields plus only the newly uploaded documents and any linked timeline items. "
+        "Decide whether the saved fields should change. "
+        "If a field does not need to change, return the current value unchanged. "
+        "Preserve user-provided details and instructions unless the new documents clearly justify an update. "
+        "Usually prefer the smallest useful edit, such as inserting or appending a new fact into existing text, instead of rewriting from scratch. "
+        "However, if a concise rewrite is clearly better and still preserves the important existing facts, you may rewrite. "
+        "Do not remove supported existing facts just because they are not repeated in the new documents. "
+        f"The creditor/business is {company_name}. "
+        f"Never include the creditor's own contact details in emails or phones. Creditor emails: {business_emails}. Creditor phones: {business_phones}. "
+        "Return debtor/client contact details only. "
+        "job_description: short plain-English summary of the work or invoice. Preserve existing wording unless a factual update is needed. "
+        "job_detail: fuller summary of the work, invoice, dispute, and payment position. Preserve manual content and add or revise only what the new documents materially change or confirm. "
+        "due_date: keep the current value unless the new documents clearly establish or correct it. "
+        "price: keep the current value unless the new documents clearly establish or correct it. "
+        "amount_paid: keep the current value unless the new documents clearly establish a different paid amount. "
+        "emails: distinct debtor/client email addresses only. "
+        "phones: distinct debtor/client phone numbers only. "
+        "context_instructions: internal collection notes. Preserve existing instructions unless the new documents add useful new context or operating constraints. "
         "Do not invent missing details."
     )
 
@@ -528,6 +559,19 @@ def normalize_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
     )
 
 
+def normalize_reviewed_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
+    return JobIntakeSummary(
+        job_description=summary.job_description.strip(),
+        job_detail=summary.job_detail.strip(),
+        due_date=summary.due_date,
+        price=summary.price,
+        amount_paid=summary.amount_paid,
+        emails=filter_external_contacts(summary.emails, kind="email"),
+        phones=filter_external_contacts(summary.phones, kind="phone"),
+        context_instructions=summary.context_instructions.strip(),
+    )
+
+
 def normalize_extraction(
     extracted: ExtractedDocument,
     *,
@@ -883,6 +927,138 @@ def summarize_job_intake(job_id: str, settings: Settings) -> JobIntakeSummary:
         duration_ms=int((perf_counter() - started_at) * 1000),
     )
     return normalize_job_intake_summary(response.output_parsed)
+
+
+def summary_from_existing_job(current_job: ExistingJobSnapshot) -> JobIntakeSummary:
+    return JobIntakeSummary(
+        job_description=current_job.job_description,
+        job_detail=current_job.job_detail,
+        due_date=current_job.due_date,
+        price=current_job.price,
+        amount_paid=current_job.amount_paid,
+        emails=current_job.emails,
+        phones=current_job.phones,
+        context_instructions=current_job.context_instructions,
+    )
+
+
+def review_job_intake_updates(
+    job_id: str,
+    request: JobIntakeReviewRequest,
+    settings: Settings,
+) -> JobIntakeSummary:
+    if not request.document_ids:
+        return summary_from_existing_job(request.current_job)
+
+    repository = DocumentRepository(settings)
+    ready_documents: list[dict[str, object]] = []
+    for document_id in request.document_ids:
+        document = repository.get(document_id)
+        if not document:
+            continue
+        if str(document["job_id"]) != job_id or str(document["status"]) != "ready":
+            continue
+        ready_documents.append(document)
+
+    if not ready_documents:
+        return summary_from_existing_job(request.current_job)
+
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured.")
+
+    all_timeline_items = repository.list_timeline_for_job(job_id)
+    linked_timeline_item_ids = {
+        str(linked_id)
+        for document in ready_documents
+        for linked_id in document.get("linked_timeline_item_ids", [])
+    }
+    relevant_timeline_items = [
+        item
+        for item in all_timeline_items
+        if str(item["id"]) in linked_timeline_item_ids
+    ]
+
+    payload = {
+        "job_id": job_id,
+        "current_job": request.current_job.model_dump(mode="json"),
+        "documents": [
+            {
+                "id": str(document["id"]),
+                "original_filename": str(document["original_filename"]),
+                "title": str(document["title"]),
+                "communication_date": document["communication_date"],
+                "description": str(document["description"]),
+                "transcript": str(document["transcript"]),
+                "linked_timeline_item_ids": document["linked_timeline_item_ids"],
+            }
+            for document in ready_documents
+        ],
+        "timeline_items": [
+            {
+                "id": str(item["id"]),
+                "category": str(item["category"]),
+                "subtype": item["subtype"],
+                "sender": item["sender"],
+                "date": str(item["date"]),
+                "short_description": str(item["short_description"]),
+                "details": str(item["details"]),
+                "linked_document_ids": item["linked_document_ids"],
+            }
+            for item in relevant_timeline_items
+        ],
+    }
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    started_at = perf_counter()
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.started",
+        provider="openai",
+        operation="job_intake.review_updates",
+        model=JOB_INTAKE_SUMMARY_MODEL,
+        job_id=job_id,
+        reviewed_document_count=len(ready_documents),
+        timeline_item_count=len(relevant_timeline_items),
+    )
+    try:
+        response = client.responses.parse(
+            model=JOB_INTAKE_SUMMARY_MODEL,
+            input=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": build_job_intake_review_prompt()},
+                        {"type": "input_text", "text": json.dumps(payload, ensure_ascii=True)},
+                    ],
+                }
+            ],
+            text_format=JobIntakeSummary,
+        )
+    except Exception as exc:
+        log_event(
+            logger,
+            logging.ERROR,
+            "openai.responses.parse.failed",
+            provider="openai",
+            operation="job_intake.review_updates",
+            model=JOB_INTAKE_SUMMARY_MODEL,
+            job_id=job_id,
+            duration_ms=int((perf_counter() - started_at) * 1000),
+            error=exc,
+        )
+        raise
+    log_event(
+        logger,
+        logging.INFO,
+        "openai.responses.parse.completed",
+        provider="openai",
+        operation="job_intake.review_updates",
+        model=JOB_INTAKE_SUMMARY_MODEL,
+        job_id=job_id,
+        duration_ms=int((perf_counter() - started_at) * 1000),
+    )
+    return normalize_reviewed_job_intake_summary(response.output_parsed)
 
 
 def plan_document_timeline(

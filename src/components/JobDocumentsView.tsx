@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useJobRouteCache } from '@/components/JobRouteCacheProvider';
 import { documentBackendPath } from '@/lib/documentBackend';
-import { refreshJobFromIntakeSummary } from '@/lib/jobStore';
+import { applyReviewedJobIntakeSummary } from '@/lib/jobStore';
 import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
 import { toUserFacingErrorMessage } from '@/lib/userFacingError';
@@ -36,6 +36,22 @@ type ApiJobIntakeSummary = {
   emails: string[];
   phones: string[];
   context_instructions: string;
+};
+
+type ApiJobIntakeReviewRequest = {
+  current_job: {
+    name: string;
+    address: string;
+    job_description: string;
+    job_detail: string;
+    due_date: string | null;
+    price: number | null;
+    amount_paid: number | null;
+    emails: string[];
+    phones: string[];
+    context_instructions: string;
+  };
+  document_ids: string[];
 };
 
 type EditableField = 'title' | 'communicationDate' | 'description' | 'transcript';
@@ -85,6 +101,24 @@ function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary 
     emails: summary.emails,
     phones: summary.phones,
     contextInstructions: summary.context_instructions,
+  };
+}
+
+function createIntakeReviewRequest(job: Job, documentIds: string[]): ApiJobIntakeReviewRequest {
+  return {
+    current_job: {
+      name: job.name,
+      address: job.address,
+      job_description: job.jobDescription,
+      job_detail: job.jobDetail,
+      due_date: job.dueDate || null,
+      price: Number.isFinite(job.price) ? job.price : null,
+      amount_paid: Number.isFinite(job.amountPaid) ? job.amountPaid : null,
+      emails: job.emails,
+      phones: job.phones,
+      context_instructions: job.contextInstructions,
+    },
+    document_ids: documentIds,
   };
 }
 
@@ -398,7 +432,12 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
     await waitForDocumentsToSettle(documentIds, trace);
 
-    const summaryResponse = await loggedFetch(documentBackendPath(`/jobs/${jobId}/intake-summary`), { cache: 'no-store' }, {
+    const summaryResponse = await loggedFetch(documentBackendPath(`/jobs/${jobId}/intake-summary/review`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(createIntakeReviewRequest(latestJob.current, documentIds)),
+      cache: 'no-store',
+    }, {
       name: 'jobs.fetch_intake_summary',
       context: {
         jobId,
@@ -412,7 +451,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     }
 
     const summary = mapApiJobIntakeSummary(await summaryResponse.json() as ApiJobIntakeSummary);
-    const refreshedJob = refreshJobFromIntakeSummary(latestJob.current, summary);
+    const refreshedJob = applyReviewedJobIntakeSummary(latestJob.current, summary);
 
     if (!jobChanged(latestJob.current, refreshedJob)) {
       return;
