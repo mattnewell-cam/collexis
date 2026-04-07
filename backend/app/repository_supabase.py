@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 import logging
+from threading import Lock
 from time import perf_counter
 from typing import Any
 from urllib.parse import quote
@@ -16,6 +17,8 @@ from .logging_utils import log_event
 
 
 logger = logging.getLogger(__name__)
+_OUTREACH_DELIVERY_STATE_SUPPORT_CACHE: dict[str, bool] = {}
+_OUTREACH_DELIVERY_STATE_SUPPORT_CACHE_LOCK = Lock()
 TIMELINE_OPTIONAL_FIELDS = {
     "recipient",
     "response_classification",
@@ -190,7 +193,20 @@ class SupabaseDocumentRepository:
             "apikey": self.settings.supabase_service_role_key,
             "Authorization": f"Bearer {self.settings.supabase_service_role_key}",
         }
-        self._has_outreach_delivery_state = self._detect_outreach_delivery_state_support()
+        self._has_outreach_delivery_state = self._get_outreach_delivery_state_support()
+
+    def _get_outreach_delivery_state_support(self) -> bool:
+        cache_key = self._rest_base_url
+
+        with _OUTREACH_DELIVERY_STATE_SUPPORT_CACHE_LOCK:
+            cached = _OUTREACH_DELIVERY_STATE_SUPPORT_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+        detected = self._detect_outreach_delivery_state_support()
+        with _OUTREACH_DELIVERY_STATE_SUPPORT_CACHE_LOCK:
+            cached = _OUTREACH_DELIVERY_STATE_SUPPORT_CACHE.setdefault(cache_key, detected)
+        return cached
 
     def _detect_outreach_delivery_state_support(self) -> bool:
         target = f"{self._rest_base_url}/outreach_plan_steps"

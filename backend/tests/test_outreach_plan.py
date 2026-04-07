@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from backend.app.outreach_drafting import (
 )
 from backend.app.outreach_planning import generate_outreach_plan
 from backend.app.repository import DocumentRepository
+from backend.app import repository_supabase
 from backend.app.repository_supabase import SupabaseDocumentRepository
 from backend.app.scheduled_outreach import process_due_outreach_once
 from backend.app.schemas import (
@@ -1471,6 +1473,34 @@ def test_supabase_compatibility_marks_sent_when_updated_at_changes() -> None:
     )
     assert sent_step["delivery_status"] == "sent"
     assert sent_step["sent_at"] == "2026-04-01T22:16:00+00:00"
+
+
+def test_supabase_delivery_state_support_is_cached_per_backend(tmp_path: Path, monkeypatch) -> None:
+    settings = replace(
+        build_settings(tmp_path),
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="service-role",
+    )
+    request_count = 0
+
+    repository_supabase._OUTREACH_DELIVERY_STATE_SUPPORT_CACHE.clear()
+
+    def fake_get(*args: object, **kwargs: object) -> httpx.Response:
+        nonlocal request_count
+        request_count += 1
+        request = httpx.Request("GET", "https://example.supabase.co/rest/v1/outreach_plan_steps")
+        return httpx.Response(200, request=request, json=[{"delivery_status": "pending"}])
+
+    monkeypatch.setattr(repository_supabase.httpx, "get", fake_get)
+
+    first = SupabaseDocumentRepository(settings)
+    second = SupabaseDocumentRepository(settings)
+
+    assert first.supports_outreach_delivery_state() is True
+    assert second.supports_outreach_delivery_state() is True
+    assert request_count == 1
+
+    repository_supabase._OUTREACH_DELIVERY_STATE_SUPPORT_CACHE.clear()
 
 
 def test_supabase_timeline_create_retries_without_optional_fields_on_schema_cache_errors() -> None:
