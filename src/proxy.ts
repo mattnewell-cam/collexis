@@ -17,6 +17,14 @@ function serializeCookies(request: NextRequest) {
     .join('; ');
 }
 
+function shouldSkipSessionRefresh(pathname: string) {
+  return pathname === '/api/client-logs'
+    || pathname === '/backend'
+    || pathname.startsWith('/backend/')
+    || pathname === '/api/backend'
+    || pathname.startsWith('/api/backend/');
+}
+
 export async function proxy(request: NextRequest) {
   const startedAt = Date.now();
   const requestHeaders = new Headers(request.headers);
@@ -30,6 +38,25 @@ export async function proxy(request: NextRequest) {
 
   requestHeaders.set(LOG_HEADER_REQUEST_ID, trace.requestId);
   requestHeaders.set(LOG_HEADER_TRACE_ORIGIN, 'proxy');
+
+  if (shouldSkipSessionRefresh(request.nextUrl.pathname)) {
+    logServerEvent('info', 'proxy', 'auth.proxy.session_refresh.skipped', {
+      method: request.method,
+      path: request.nextUrl.pathname,
+      authCookieCount,
+      reason: 'path_excluded',
+    }, trace);
+
+    const response = NextResponse.next({
+      request: {
+        headers: requestHeaders,
+      },
+    });
+
+    response.headers.set(LOG_HEADER_REQUEST_ID, trace.requestId);
+    response.headers.set(LOG_HEADER_TRACE_ORIGIN, 'proxy');
+    return response;
+  }
 
   logServerEvent('info', 'proxy', 'auth.proxy.session_refresh.started', {
     method: request.method,
