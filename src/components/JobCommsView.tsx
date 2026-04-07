@@ -197,6 +197,9 @@ export default function JobCommsView() {
   const [intakeJustCompleted, setIntakeJustCompleted] = useState(false);
   const deleteUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeJobIdRef = useRef(job.id);
+  const commsLoadRef = useRef<Promise<void> | null>(null);
+  const documentsLoadRef = useRef<Promise<void> | null>(null);
+  const planLoadRef = useRef<Promise<void> | null>(null);
 
   const hasProcessingDocuments = documents.some(document => document.status === 'processing');
   const hasCompletedIntake = jobState.contextInstructions.includes(intakeContextLabel);
@@ -242,29 +245,57 @@ export default function JobCommsView() {
   }, [jobState.id]);
 
   const loadComms = useCallback(async () => {
-    setLoading(true);
-    try {
-      const nextComms = await fetchTimelineItems(jobState.id);
-      setComms(nextComms);
-      setCachedCommunications(nextComms);
-      setPageError(null);
-    } catch (error) {
-      setPageError(errorMessage(error, 'Could not load communications.'));
-      setComms([]);
-    } finally {
-      setLoading(false);
+    if (commsLoadRef.current) {
+      return commsLoadRef.current;
     }
+
+    const request = (async () => {
+      setLoading(true);
+      try {
+        const nextComms = await fetchTimelineItems(jobState.id);
+        setComms(nextComms);
+        setCachedCommunications(nextComms);
+        setPageError(null);
+      } catch (error) {
+        setPageError(errorMessage(error, 'Could not load communications.'));
+        setComms([]);
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    commsLoadRef.current = request.finally(() => {
+      if (commsLoadRef.current === request) {
+        commsLoadRef.current = null;
+      }
+    });
+
+    return commsLoadRef.current;
   }, [jobState.id, setCachedCommunications]);
 
   const loadDocuments = useCallback(async () => {
-    try {
-      const nextDocuments = await fetchJobDocuments(jobState.id);
-      setDocuments(nextDocuments);
-      setCachedDocuments(nextDocuments);
-    } catch (error) {
-      setPageError(errorMessage(error, 'Could not load documents.'));
-      setDocuments([]);
+    if (documentsLoadRef.current) {
+      return documentsLoadRef.current;
     }
+
+    const request = (async () => {
+      try {
+        const nextDocuments = await fetchJobDocuments(jobState.id);
+        setDocuments(nextDocuments);
+        setCachedDocuments(nextDocuments);
+      } catch (error) {
+        setPageError(errorMessage(error, 'Could not load documents.'));
+        setDocuments([]);
+      }
+    })();
+
+    documentsLoadRef.current = request.finally(() => {
+      if (documentsLoadRef.current === request) {
+        documentsLoadRef.current = null;
+      }
+    });
+
+    return documentsLoadRef.current;
   }, [jobState.id, setCachedDocuments]);
 
   const refreshPlanDrafts = useCallback(async (draftJob: Job) => {
@@ -280,26 +311,40 @@ export default function JobCommsView() {
   }, [setCachedOutreachPlan]);
 
   const loadPlan = useCallback(async () => {
-    setPlanLoading(true);
-    try {
-      const existingPlan = await fetchOutreachPlan(jobState.id);
-      if (activeJobIdRef.current !== jobState.id) return;
-
-      setPageError(null);
-      setPostNowSteps(existingPlan);
-      setCachedOutreachPlan(existingPlan);
-
-      if (planNeedsDraftRefresh(existingPlan)) {
-        void refreshPlanDrafts(jobState);
-      }
-    } catch (error) {
-      if (activeJobIdRef.current !== jobState.id) return;
-      setPageError(errorMessage(error, 'Could not load outreach plan.'));
-      setPostNowSteps([]);
-    } finally {
-      if (activeJobIdRef.current !== jobState.id) return;
-      setPlanLoading(false);
+    if (planLoadRef.current) {
+      return planLoadRef.current;
     }
+
+    const request = (async () => {
+      setPlanLoading(true);
+      try {
+        const existingPlan = await fetchOutreachPlan(jobState.id);
+        if (activeJobIdRef.current !== jobState.id) return;
+
+        setPageError(null);
+        setPostNowSteps(existingPlan);
+        setCachedOutreachPlan(existingPlan);
+
+        if (planNeedsDraftRefresh(existingPlan)) {
+          void refreshPlanDrafts(jobState);
+        }
+      } catch (error) {
+        if (activeJobIdRef.current !== jobState.id) return;
+        setPageError(errorMessage(error, 'Could not load outreach plan.'));
+        setPostNowSteps([]);
+      } finally {
+        if (activeJobIdRef.current !== jobState.id) return;
+        setPlanLoading(false);
+      }
+    })();
+
+    planLoadRef.current = request.finally(() => {
+      if (planLoadRef.current === request) {
+        planLoadRef.current = null;
+      }
+    });
+
+    return planLoadRef.current;
   }, [jobState, refreshPlanDrafts, setCachedOutreachPlan]);
 
   useEffect(() => {

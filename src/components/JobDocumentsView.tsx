@@ -241,6 +241,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestDocuments = useRef<EditableDocumentRecord[]>([]);
   const latestJob = useRef(job);
+  const documentsFetchRef = useRef<Promise<void> | null>(null);
   const [dragging, setDragging] = useState(false);
   const [documents, setDocuments] = useState<EditableDocumentRecord[]>(() =>
     cachedDocuments.loaded ? cachedDocuments.data.map(createLocalDocument) : [],
@@ -294,28 +295,42 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
   const fetchDocuments = useCallback(async (showLoading: boolean) => {
     if (!jobId) return;
-    if (showLoading) setLoading(true);
-
-    try {
-      const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
-        name: 'documents.fetch_view',
-        context: { jobId, showLoading },
-      });
-      if (!response.ok) {
-        throw new Error('Could not load documents.');
-      }
-
-      const payload: ApiDocumentRecord[] = await response.json() as ApiDocumentRecord[];
-      const nextDocuments = payload.map(mapApiDocument);
-      setDocuments(prev => mergeDocuments(prev, nextDocuments));
-      setCachedDocuments(nextDocuments);
-      setPageError(null);
-    } catch (error) {
-      const message = toUserFacingErrorMessage(error, 'Could not load documents.');
-      setPageError(message);
-    } finally {
-      if (showLoading) setLoading(false);
+    if (documentsFetchRef.current) {
+      return documentsFetchRef.current;
     }
+
+    const request = (async () => {
+      if (showLoading) setLoading(true);
+
+      try {
+        const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
+          name: 'documents.fetch_view',
+          context: { jobId, showLoading },
+        });
+        if (!response.ok) {
+          throw new Error('Could not load documents.');
+        }
+
+        const payload: ApiDocumentRecord[] = await response.json() as ApiDocumentRecord[];
+        const nextDocuments = payload.map(mapApiDocument);
+        setDocuments(prev => mergeDocuments(prev, nextDocuments));
+        setCachedDocuments(nextDocuments);
+        setPageError(null);
+      } catch (error) {
+        const message = toUserFacingErrorMessage(error, 'Could not load documents.');
+        setPageError(message);
+      } finally {
+        if (showLoading) setLoading(false);
+      }
+    })();
+
+    documentsFetchRef.current = request.finally(() => {
+      if (documentsFetchRef.current === request) {
+        documentsFetchRef.current = null;
+      }
+    });
+
+    return documentsFetchRef.current;
   }, [jobId, setCachedDocuments]);
 
   useEffect(() => {
