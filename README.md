@@ -14,7 +14,13 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+This starts both the Next.js frontend on [http://localhost:3000](http://localhost:3000) and the local Python document backend on `http://127.0.0.1:8000`.
+
+If you only need the frontend, run:
+
+```bash
+npm run dev:next
+```
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

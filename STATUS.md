@@ -28,6 +28,7 @@
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.
+- `npm run dev` now boots the Python backend alongside Next, so the local documents/timeline features come up on ports `8000` and `3000` together by default.
 - WhatsApp sending now reuses a populated legacy root `.playwright-profile` automatically if present, so older authenticated Playwright sessions still work after the runtime cleanup.
 - Starter/sample jobs now lazily backfill their missing communications timeline into Supabase when the communications page opens, so seeded accounts no longer show empty sample timelines.
 

@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "node scripts/dev-with-backend.mjs",
+    "dev:next": "next dev --webpack",
     "build": "node scripts/build-with-backend.mjs",
     "build:next": "next build",
     "start": "node scripts/start-with-backend.mjs",
