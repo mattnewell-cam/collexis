@@ -179,12 +179,6 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   }, [documents]);
 
   useEffect(() => {
-    if (!cachedDocuments.loaded) return;
-    setDocuments(previous => mergeDocuments(previous, cachedDocuments.data));
-    setLoading(false);
-  }, [cachedDocuments]);
-
-  useEffect(() => {
     if (!viewerDocument) {
       setViewerImageStatus('idle');
       return;
@@ -245,12 +239,13 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (cachedDocuments.loaded) {
+      setDocuments(cachedDocuments.data.map(createLocalDocument));
       setLoading(false);
       return;
     }
 
     void fetchDocuments(true);
-  }, [cachedDocuments.loaded, fetchDocuments]);
+  }, [cachedDocuments.data, cachedDocuments.loaded, fetchDocuments]);
 
   useEffect(() => {
     if (!hasProcessingDocuments) return;
