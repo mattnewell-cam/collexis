@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from textwrap import dedent
+from time import monotonic, sleep
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -53,9 +54,25 @@ def run_command(
         input=input_text,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         env=env,
         check=False,
     )
+
+
+def terminate_process_tree(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/pid", str(process.pid), "/t", "/f"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return
+    process.terminate()
 
 
 def resolve_command(name: str) -> str | None:
@@ -69,6 +86,15 @@ def command_needs_cmd_shim(name: str, resolved: str | None) -> bool:
         return False
     lowered = str(resolved).lower()
     return "\\windowsapps\\" in lowered or lowered.endswith(".cmd") or lowered.endswith(".bat")
+
+
+def default_codex_sandbox() -> str:
+    configured = (os.getenv("BUG_AUTOFIX_CODEX_SANDBOX") or "").strip()
+    if configured:
+        return configured
+    if os.name == "nt":
+        return "danger-full-access"
+    return "workspace-write"
 
 
 def git(
@@ -231,6 +257,7 @@ def build_codex_command(
     schema_path: Path,
     output_path: Path,
     model: str,
+    sandbox_mode: str,
     use_cmd_shim: bool = False,
 ) -> list[str]:
     command = [
@@ -240,7 +267,7 @@ def build_codex_command(
         "--cd",
         str(worktree_path),
         "--sandbox",
-        "workspace-write",
+        sandbox_mode,
         "-c",
         'approval_policy="never"',
         "--ephemeral",
@@ -260,6 +287,74 @@ def build_codex_command(
 
 def load_codex_result(output_path: Path) -> dict[str, object]:
     return json.loads(output_path.read_text(encoding="utf-8"))
+
+
+def run_codex_command(
+    *,
+    command: list[str],
+    cwd: Path,
+    output_path: Path,
+    input_text: str,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float = 1800.0,
+    linger_after_output_seconds: float = 5.0,
+    poll_interval_seconds: float = 0.25,
+) -> subprocess.CompletedProcess[str]:
+    creationflags = 0
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        creationflags=creationflags,
+    )
+    try:
+        if process.stdin is not None:
+            process.stdin.write(input_text)
+            process.stdin.close()
+    except BrokenPipeError:
+        pass
+
+    deadline = monotonic() + timeout_seconds
+    output_seen_at: float | None = None
+    forced_stop = False
+
+    while True:
+        if process.poll() is not None:
+            break
+        if output_path.exists():
+            if output_seen_at is None:
+                output_seen_at = monotonic()
+            elif monotonic() - output_seen_at >= linger_after_output_seconds:
+                terminate_process_tree(process)
+                forced_stop = True
+                break
+        if monotonic() >= deadline:
+            terminate_process_tree(process)
+            forced_stop = True
+            break
+        sleep(poll_interval_seconds)
+
+    try:
+        stdout, stderr = process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        terminate_process_tree(process)
+        stdout, stderr = process.communicate(timeout=5)
+    if forced_stop and process.returncode is None:
+        process.wait(timeout=5)
+    return subprocess.CompletedProcess(
+        args=command,
+        returncode=process.returncode if process.returncode is not None else 1,
+        stdout=stdout,
+        stderr=stderr,
+    )
 
 
 def ensure_clean_committed_fix(worktree_path: Path, initial_head: str) -> tuple[str, str]:
@@ -370,6 +465,7 @@ def run(payload_path: Path) -> dict[str, object]:
     incident_id = str(incident.get("id") or "incident")
     codex_command = os.getenv("BUG_AUTOFIX_CODEX_COMMAND", "codex").strip() or "codex"
     codex_model = os.getenv("BUG_AUTOFIX_CODEX_MODEL", "gpt-5.4").strip() or "gpt-5.4"
+    codex_sandbox = default_codex_sandbox()
 
     resolved_codex_command = resolve_command(codex_command)
     if resolved_codex_command is None:
@@ -415,9 +511,15 @@ def run(payload_path: Path) -> dict[str, object]:
             schema_path=schema_path,
             output_path=codex_output_path,
             model=codex_model,
+            sandbox_mode=codex_sandbox,
             use_cmd_shim=use_cmd_shim,
         )
-        codex_run = run_command(codex_command_line, cwd=repo_root, input_text=prompt)
+        codex_run = run_codex_command(
+            command=codex_command_line,
+            cwd=repo_root,
+            output_path=codex_output_path,
+            input_text=prompt,
+        )
         codex_log_path.write_text(
             "\n\n".join(
                 [
@@ -429,7 +531,7 @@ def run(payload_path: Path) -> dict[str, object]:
             ),
             encoding="utf-8",
         )
-        if codex_run.returncode != 0:
+        if codex_run.returncode != 0 and not codex_output_path.exists():
             detail = codex_run.stderr.strip() or codex_run.stdout.strip() or "Codex exited with an error."
             raise RuntimeError(f"Codex could not complete the autofix task: {detail}")
         if not codex_output_path.exists():

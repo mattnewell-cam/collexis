@@ -17,6 +17,11 @@ logger = logging.getLogger(__name__)
 INTAKE_CHAT_MODEL = "gpt-5.4-mini"
 INTAKE_CHAT_REASONING_EFFORT = "low"
 
+RELATIONSHIP_QUESTION = (
+    "Any relevant details of your relationship with this customer we should know? "
+    "E.g. are they a long-term customer of yours, or a friend of a friend?"
+)
+
 IntakeField = Literal[
     "preferred_channels",
     "debtor_relationship",
@@ -26,7 +31,6 @@ IntakeField = Literal[
     "handover_willingness",
     "legal_threat_appetite",
     "dispute_status",
-    "previous_chase_attempts",
     "debtor_type",
 ]
 
@@ -34,7 +38,6 @@ INTAKE_FIELDS: list[IntakeField] = [
     "debtor_type",
     "debtor_relationship",
     "dispute_status",
-    "previous_chase_attempts",
     "tone_preference",
     "preferred_channels",
     "known_vulnerabilities",
@@ -45,14 +48,13 @@ INTAKE_FIELDS: list[IntakeField] = [
 
 FIELD_DESCRIPTIONS: dict[IntakeField, str] = {
     "preferred_channels": "Whether there are any communication channels they'd like to prioritise or avoid (email, phone, SMS, WhatsApp, letter).",
-    "debtor_relationship": "The client's relationship with the debtor — long-term customer, referral, personal acquaintance, one-off/stranger.",
+    "debtor_relationship": "Any relevant details about the client's relationship with the customer that might matter for tone or approach, for example whether they are a long-term customer, a referral, a friend-of-a-friend, or just a one-off.",
     "tone_preference": "What tone the client wants: warm/reminder-only, formal/professional, or stern/escalatory.",
     "known_vulnerabilities": "Any known vulnerabilities about the debtor (financial difficulty, health issues, etc.) that might affect the approach or trigger regulatory obligations.",
     "promise_to_pay_tolerance": "Whether the client is willing to accept 'I'll pay by X date', and if so, the latest date they'd be willing to wait.",
     "handover_willingness": "If no response is received, how long the client is willing to wait before formal handover — which involves a debtor surcharge, skip tracing, and escalation towards legal threats.",
     "legal_threat_appetite": "Whether the client is open to legal threats/action, or wants to avoid them entirely.",
     "dispute_status": "Whether the debtor is disputing the debt (quality of work, amount owed, etc.), which fundamentally changes the approach.",
-    "previous_chase_attempts": "Whether the client has already attempted to chase the debt themselves before coming to Collexis, and how (calls, emails, in-person, etc.).",
     "debtor_type": "Whether the debtor is a business (B2B) or an individual (B2C), as this changes tone, legal framework, and appropriate channels.",
 }
 
@@ -101,6 +103,7 @@ Fields to assess:
 
 Rules:
 - Ask ONE question at a time. Be concise and conversational. Do not be stiff or robotic.
+- For debtor_relationship, prefer a natural question like 'Any relevant details of your relationship with this customer we should know? E.g. are they a long-term customer of yours, or a friend of a friend?'
 - If existing job data already tells you the answer to a field, mark it "known" without asking.
 - When the user answers, extract the relevant info and mark the field "known".
 - When a field is marked "skipped" in the input, keep it as "skipped".
@@ -227,7 +230,11 @@ def run_intake_chat(
         field_statuses=result_statuses,
         field_summaries=result_summaries,
         current_field=analysis.next_field,
-        assistant_message=analysis.next_question,
+        assistant_message=(
+            RELATIONSHIP_QUESTION
+            if analysis.next_field == "debtor_relationship" and not analysis.all_complete
+            else analysis.next_question
+        ),
         all_complete=analysis.all_complete,
         context_summary=analysis.context_summary,
     )

@@ -160,7 +160,7 @@ export default function IntakeChat({ job, onComplete, onCancel }: IntakeChatProp
   }, [currentField, loading, messages, fieldStatuses, sendToBackend, onComplete]);
 
   const knownCount = Object.values(fieldStatuses).filter(s => s === 'known').length;
-  const totalFields = Object.keys(fieldStatuses).length || 10;
+  const totalFields = Object.keys(fieldStatuses).length || 9;
   const skippedCount = Object.values(fieldStatuses).filter(s => s === 'skipped').length;
   const progressPercent = totalFields > 0 ? Math.round(((knownCount + skippedCount) / totalFields) * 100) : 0;
 
