@@ -51,6 +51,7 @@ type PlanConfirmState =
   | {
       intent: 'generate' | 'regenerate' | 'revise';
       missingPhone: boolean;
+      missingEmail: boolean;
     }
   | null;
 
@@ -201,8 +202,10 @@ export default function JobCommsView() {
   const hasCompletedIntake = jobState.contextInstructions.includes(intakeContextLabel);
   const hasGeneratedPlan = postNowSteps.length > 0;
   const hasPhoneContact = jobState.phones.some(phone => phone.trim().length > 0);
+  const hasEmailContact = jobState.emails.some(email => email.trim().length > 0);
   const hasPlannerNoteInputs = Boolean(planToneInput.trim() || planChangeRequestsInput.trim());
   const planConfirmNeedsPhoneWarning = planConfirmState?.missingPhone ?? false;
+  const planConfirmNeedsEmailWarning = planConfirmState?.missingEmail ?? false;
   const planConfirmWillReplace = planConfirmState?.intent === 'regenerate' || planConfirmState?.intent === 'revise';
   const planConfirmIsRevision = planConfirmState?.intent === 'revise';
 
@@ -557,8 +560,25 @@ export default function JobCommsView() {
     }, { sendToServer: true });
   };
 
-  const handleGeneratePlan = useCallback(async () => {
+  const handleGeneratePlan = useCallback(async (options?: { allowWithoutEmail?: boolean }) => {
     const planIntent = planConfirmState?.intent ?? (hasGeneratedPlan ? 'regenerate' : 'generate');
+    if (!hasPhoneContact) {
+      setPlanConfirmState({
+        intent: planIntent,
+        missingPhone: true,
+        missingEmail: !hasEmailContact,
+      });
+      setPageError('Add a phone number before generating an outreach plan.');
+      return;
+    }
+    if (!hasEmailContact && !options?.allowWithoutEmail) {
+      setPlanConfirmState({
+        intent: planIntent,
+        missingPhone: false,
+        missingEmail: true,
+      });
+      return;
+    }
     setPlanConfirmState(null);
     setPlanGenerating(true);
     try {
@@ -601,6 +621,7 @@ export default function JobCommsView() {
         jobId: jobState.id,
         hadExistingPlan: hasGeneratedPlan,
         intent: planIntent,
+        proceededWithoutEmail: !hasEmailContact,
         hasToneGuidance: Boolean(planToneInput.trim()),
         hasChangeRequests: Boolean(planChangeRequestsInput.trim()),
       });
@@ -610,7 +631,7 @@ export default function JobCommsView() {
       setPlanGenerating(false);
       setPlanLoading(false);
     }
-  }, [handoverDaysInput, hasGeneratedPlan, jobState, persistJobPatch, planChangeRequestsInput, planConfirmState, planToneInput, refreshPlanDrafts, setCachedOutreachPlan]);
+  }, [handoverDaysInput, hasEmailContact, hasGeneratedPlan, hasPhoneContact, jobState, persistJobPatch, planChangeRequestsInput, planConfirmState, planToneInput, refreshPlanDrafts, setCachedOutreachPlan]);
 
   const requestPlanGeneration = useCallback((intent: 'generate' | 'regenerate' | 'revise') => {
     if (planGenerating) return;
@@ -622,8 +643,9 @@ export default function JobCommsView() {
     setPlanConfirmState({
       intent,
       missingPhone: !hasPhoneContact,
+      missingEmail: !hasEmailContact,
     });
-  }, [hasCompletedIntake, hasGeneratedPlan, hasPhoneContact, planGenerating]);
+  }, [hasCompletedIntake, hasEmailContact, hasGeneratedPlan, hasPhoneContact, planGenerating]);
 
   const handleIntakeComplete = useCallback(async (contextSummary: string) => {
     setIntakeChatOpen(false);
@@ -643,13 +665,24 @@ export default function JobCommsView() {
       }
     }
 
-    // Show green completion text, then auto-trigger plan generation
+    // Show green completion text, then continue with generation or contact warnings
     setIntakeJustCompleted(true);
     setTimeout(() => {
       setIntakeJustCompleted(false);
-      void handleGeneratePlan();
+      if (!hasPhoneContact || !hasEmailContact) {
+        setPlanConfirmState({
+          intent: 'generate',
+          missingPhone: !hasPhoneContact,
+          missingEmail: !hasEmailContact,
+        });
+        if (!hasPhoneContact) {
+          setPageError('Add a phone number before generating an outreach plan.');
+        }
+        return;
+      }
+      void handleGeneratePlan({ allowWithoutEmail: true });
     }, 1500);
-  }, [jobState, persistJobPatch, handleGeneratePlan]);
+  }, [hasEmailContact, hasPhoneContact, jobState, persistJobPatch, handleGeneratePlan]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
@@ -1134,18 +1167,22 @@ export default function JobCommsView() {
               </svg>
             </div>
             <h2 id="regenerate-plan-title" className="mt-4 text-lg font-semibold text-gray-900">
-              {planConfirmIsRevision
+              {planConfirmNeedsPhoneWarning
+                ? 'Add a phone number before generating a plan'
+                : planConfirmIsRevision
                 ? 'Suggest changes to this plan?'
                 : planConfirmWillReplace ? 'Regenerate outreach plan?' : 'Generate outreach plan?'}
             </h2>
             <p className="mt-2 text-sm leading-6 text-gray-500">
-              {planConfirmIsRevision
+              {planConfirmNeedsPhoneWarning
+                ? 'A phone number is required before Collexis can generate an outreach plan for this job.'
+                : planConfirmIsRevision
                 ? 'Tell Collexis what to change, and the saved future steps will be regenerated around that steer.'
                 : planConfirmWillReplace
                   ? 'Regenerating the outreach plan will replace the current future steps for this job.'
                   : 'Generate the next-step outreach plan for this job.'}
             </p>
-            {hasGeneratedPlan ? (
+            {hasGeneratedPlan && !planConfirmNeedsPhoneWarning ? (
               <div className="mt-4">
                 <label htmlFor="plan-change-requests-input" className="text-xs font-semibold uppercase tracking-[0.16em] text-gray-400">
                   What Should Change?
@@ -1185,7 +1222,15 @@ export default function JobCommsView() {
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">No phone number is saved for this job.</p>
                 <p className="mt-1 text-sm leading-6 text-amber-800">
-                  Calls, SMS, and WhatsApp will be left out of the plan until one is added. Collections are more likely to succeed when phone contact is available.
+                  Add one in Details before generating the plan. Calls, SMS, and WhatsApp stay unavailable until a phone number is saved.
+                </p>
+              </div>
+            ) : null}
+            {planConfirmNeedsEmailWarning ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">No email address is saved for this job.</p>
+                <p className="mt-1 text-sm leading-6 text-amber-800">
+                  Email outreach will be left out unless you add one. You can still continue and generate a plan around the available channels.
                 </p>
               </div>
             ) : null}
@@ -1197,20 +1242,32 @@ export default function JobCommsView() {
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                onClick={() => { void handleGeneratePlan(); }}
-                className="rounded-xl px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-                style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
-              >
-                {planConfirmNeedsPhoneWarning
-                  ? planConfirmIsRevision
-                    ? 'Regenerate with changes anyway'
-                    : planConfirmWillReplace ? 'Regenerate anyway' : 'Generate anyway'
-                  : planConfirmIsRevision
-                    ? 'Regenerate with changes'
-                    : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
-              </button>
+              {planConfirmNeedsPhoneWarning ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlanConfirmState(null);
+                    router.push(`/console/jobs/${jobState.id}`);
+                  }}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+                >
+                  Add phone number
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { void handleGeneratePlan({ allowWithoutEmail: planConfirmNeedsEmailWarning }); }}
+                  className="rounded-xl px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg, #2abfaa 0%, #1e9bb8 100%)' }}
+                >
+                  {planConfirmNeedsEmailWarning
+                    ? 'Generate without email'
+                    : planConfirmIsRevision
+                      ? 'Regenerate with changes'
+                      : planConfirmWillReplace ? 'Regenerate plan' : 'Generate plan'}
+                </button>
+              )}
             </div>
           </div>
         </div>

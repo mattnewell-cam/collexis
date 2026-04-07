@@ -320,6 +320,14 @@ export default function JobDetailsForm({ job }: { job: Job }) {
             <Field label="Phone numbers">
               <TagListEditor values={draft.phones} onChange={v => set('phones', v)} placeholder="Add phone, press Enter" />
             </Field>
+            <Field label="Address">
+              <input
+                className={inputCls}
+                value={draft.address}
+                onChange={e => set('address', e.target.value)}
+                placeholder="Add address"
+              />
+            </Field>
           </SectionCard>
 
           <SectionCard title="Context / Instructions" className="h-full" bodyClassName="flex h-full flex-col">
