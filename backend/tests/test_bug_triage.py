@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from backend.app.bug_triage import (
+    _compact_list,
     AppLogEntry,
     BugTriageDecision,
     fingerprint_log,
@@ -158,6 +159,11 @@ def test_fingerprint_log_normalizes_dynamic_bits() -> None:
     )
 
     assert fingerprint_log(first) == fingerprint_log(second)
+
+
+def test_compact_list_ignores_empty_list_values_without_crashing() -> None:
+    assert _compact_list([1, 2], []) == [1, 2]
+    assert _compact_list(["req-1"], None) == ["req-1"]
 
 
 def test_process_bug_triage_triages_single_hit_bug_and_hands_off(monkeypatch, tmp_path: Path) -> None:

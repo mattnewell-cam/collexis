@@ -35,6 +35,7 @@
 - Starter/sample jobs now lazily backfill their missing communications timeline into Supabase when the communications page opens, so seeded accounts no longer show empty sample timelines.
 - Optional bug triage now watches persistent `app_logs`, groups distinct failures into `bug_incidents`, asks OpenAI whether each looks like a real bug or a transient issue, and now ships with a Codex handoff runner that can push a fix branch and open a draft PR.
 - The Windows bug-autofix runner now launches Codex through `cmd /c` when the CLI comes from the Windows Store alias, avoiding the `WinError 5` startup failure before Codex can even assess the incident.
+- Bug triage no longer crashes on incident sample fields that contain list values, so the live watcher can keep classifying incidents instead of dying with `unhashable type: 'list'`.
 
 ### Comms channels
 - Intend to eventually have email, call, SMS, whatsapp and letters

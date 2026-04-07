@@ -229,7 +229,7 @@ def is_internal_bug_triage_log(log: AppLogEntry) -> bool:
 
 
 def _compact_list(values: list[Any], new_value: Any) -> list[Any]:
-    if new_value in {None, "", []}:
+    if new_value is None or new_value == "" or new_value == []:
         return values[:BUG_TRIAGE_MAX_SAMPLES]
     merged = [*values, new_value]
     deduped: list[Any] = []

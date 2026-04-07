@@ -21,6 +21,7 @@ Each entry links to a memory file. Keep entries under ~150 chars. Files live in 
 - `render_log_source_compat.md` - Production now normalizes `proxy` and `server-component` log sources for the legacy `app_logs` schema and binds Next explicitly to `0.0.0.0`.
 - `timeline_item_schema_compatibility.md` - Supabase timeline writes now retry without newer optional columns, and document extraction errors are sanitized before reaching the UI.
 - `bug_triage_autofix_pipeline.md` - Optional bug triage now groups app_logs into incidents, asks OpenAI whether they are real bugs or transient, and can hand high-confidence cases to an external autofix runner.
+- `bug_triage_compact_list_crash.md` - The live bug-triage worker was crashing because `_compact_list` used a set literal containing `[]`, which raises `TypeError: unhashable type: 'list'`.
 - `windows_bug_autofix_runner_launch.md` - On Windows Store Codex installs, the autofix runner must launch `codex` through `cmd /c` because direct subprocess launches fail with WinError 5.
 - `whatsapp_backend_boundary.md` - WhatsApp sending now executes in the Python backend, with Next narrowed to auth, forwarding, and audit work.
 - `job_route_tab_cache.md` - Job sub-routes now share a client cache so documents/comms/outreach data persist across tab switches.
