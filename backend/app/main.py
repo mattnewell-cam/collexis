@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from .brevo_email import brevo_configuration_error
+from .bug_triage import BugTriageMonitor, bug_triage_is_configured, start_bug_triage_thread
 from .config import Settings
 from .database import init_db
 from .extraction import (
@@ -158,7 +159,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         stop_event = threading.Event()
         scheduler_monitor = SchedulerMonitor(app_settings.scheduler_poll_interval_seconds)
+        bug_triage_monitor = BugTriageMonitor(app_settings.bug_triage_poll_interval_seconds)
         app.state.scheduler_monitor = scheduler_monitor
+        app.state.bug_triage_monitor = bug_triage_monitor
         app.state.scheduler_stop_event = stop_event
         app.state.scheduler_thread = start_scheduler_thread(
             settings=app_settings,
@@ -166,11 +169,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             stop_event=stop_event,
             draft_ensurer=app.state.outreach_plan_draft_ensurer,
         )
+        app.state.bug_triage_thread = (
+            start_bug_triage_thread(
+                settings=app_settings,
+                monitor=bug_triage_monitor,
+                stop_event=stop_event,
+            )
+            if bug_triage_is_configured(app_settings)
+            else None
+        )
         try:
             yield
         finally:
             stop_event.set()
             app.state.scheduler_thread.join(timeout=5)
+            if app.state.bug_triage_thread is not None:
+                app.state.bug_triage_thread.join(timeout=5)
 
     app = FastAPI(title="Collexis backend", lifespan=lifespan)
     app.state.settings = app_settings
@@ -243,8 +257,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> Response:
         scheduler_monitor: SchedulerMonitor = app.state.scheduler_monitor
         snapshot = scheduler_monitor.snapshot()
+        bug_triage_monitor: BugTriageMonitor = app.state.bug_triage_monitor
+        bug_triage_snapshot = bug_triage_monitor.snapshot()
+        bug_triage_enabled = bool(app.state.settings.bug_triage_enabled)
+        bug_triage_configured = bug_triage_is_configured(app.state.settings)
+        scheduler_healthy = scheduler_monitor.is_healthy()
+        bug_triage_healthy = bug_triage_monitor.is_healthy() if bug_triage_configured else True
         payload = {
-            "status": "ok" if scheduler_monitor.is_healthy() else "degraded",
+            "status": "ok" if scheduler_healthy and bug_triage_healthy else "degraded",
             "brevo_configured": brevo_configuration_error(app.state.settings) is None,
             "scheduler": {
                 "started_at": snapshot.started_at,
@@ -254,8 +274,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "last_error": snapshot.last_error,
                 "processed_count": snapshot.processed_count,
             },
+            "bug_triage": {
+                "enabled": bug_triage_enabled,
+                "configured": bug_triage_configured,
+                "runner_configured": app.state.settings.bug_autofix_runner is not None,
+                "started_at": bug_triage_snapshot.started_at,
+                "last_heartbeat_at": bug_triage_snapshot.last_heartbeat_at,
+                "last_success_at": bug_triage_snapshot.last_success_at,
+                "last_error_at": bug_triage_snapshot.last_error_at,
+                "last_error": bug_triage_snapshot.last_error,
+                "processed_log_count": bug_triage_snapshot.processed_log_count,
+                "triaged_incident_count": bug_triage_snapshot.triaged_incident_count,
+                "autofix_run_count": bug_triage_snapshot.autofix_run_count,
+            },
         }
-        return JSONResponse(payload, status_code=200 if scheduler_monitor.is_healthy() else 503)
+        return JSONResponse(payload, status_code=200 if scheduler_healthy and bug_triage_healthy else 503)
 
     @app.get("/jobs/{job_id}/documents", response_model=list[DocumentResponse])
     def list_documents(job_id: str) -> list[DocumentResponse]:
