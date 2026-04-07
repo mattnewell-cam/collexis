@@ -58,8 +58,17 @@ def run_command(
     )
 
 
-def require_command(name: str) -> str | None:
+def resolve_command(name: str) -> str | None:
     return shutil.which(name)
+
+
+def command_needs_cmd_shim(name: str, resolved: str | None) -> bool:
+    if os.name != "nt" or not resolved:
+        return False
+    if Path(name).suffix:
+        return False
+    lowered = str(resolved).lower()
+    return "\\windowsapps\\" in lowered or lowered.endswith(".cmd") or lowered.endswith(".bat")
 
 
 def git(
@@ -222,8 +231,9 @@ def build_codex_command(
     schema_path: Path,
     output_path: Path,
     model: str,
+    use_cmd_shim: bool = False,
 ) -> list[str]:
-    return [
+    command = [
         codex_command,
         "exec",
         "-",
@@ -243,6 +253,9 @@ def build_codex_command(
         "--model",
         model,
     ]
+    if use_cmd_shim:
+        return ["cmd", "/c", *command]
+    return command
 
 
 def load_codex_result(output_path: Path) -> dict[str, object]:
@@ -358,8 +371,10 @@ def run(payload_path: Path) -> dict[str, object]:
     codex_command = os.getenv("BUG_AUTOFIX_CODEX_COMMAND", "codex").strip() or "codex"
     codex_model = os.getenv("BUG_AUTOFIX_CODEX_MODEL", "gpt-5.4").strip() or "gpt-5.4"
 
-    if require_command(codex_command) is None:
+    resolved_codex_command = resolve_command(codex_command)
+    if resolved_codex_command is None:
         raise RuntimeError(f"Could not find the Codex CLI command `{codex_command}`.")
+    use_cmd_shim = command_needs_cmd_shim(codex_command, resolved_codex_command)
     if not github_token():
         raise RuntimeError(
             "No GitHub token found. Set BUG_AUTOFIX_GITHUB_TOKEN, GITHUB_TOKEN, GH_TOKEN, or GITHUB_PAT before using the autofix runner."
@@ -395,11 +410,12 @@ def run(payload_path: Path) -> dict[str, object]:
         initial_head = git_output(["rev-parse", "HEAD"], cwd=worktree_path, error_prefix="Could not read initial worktree HEAD")
         prompt = build_codex_prompt(payload, worktree_path=worktree_path)
         codex_command_line = build_codex_command(
-            codex_command=codex_command,
+            codex_command=codex_command if use_cmd_shim else resolved_codex_command,
             worktree_path=worktree_path,
             schema_path=schema_path,
             output_path=codex_output_path,
             model=codex_model,
+            use_cmd_shim=use_cmd_shim,
         )
         codex_run = run_command(codex_command_line, cwd=repo_root, input_text=prompt)
         codex_log_path.write_text(

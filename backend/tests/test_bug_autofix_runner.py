@@ -34,6 +34,15 @@ def test_build_branch_name_uses_codex_prefix(monkeypatch) -> None:
     assert branch == "codex/bug-incident-123-bad-wri-20260407183000"
 
 
+def test_command_needs_cmd_shim_for_windowsapps_alias(monkeypatch) -> None:
+    runner = load_runner_module()
+    cmd_alias = r"C:\Users\matth\AppData\Local\Microsoft\WindowsApps\codex.cmd"
+
+    monkeypatch.setattr(runner.os, "name", "nt", raising=False)
+
+    assert runner.command_needs_cmd_shim("codex", cmd_alias) is True
+
+
 def test_build_pr_body_includes_incident_and_checks() -> None:
     runner = load_runner_module()
 
