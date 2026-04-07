@@ -91,6 +91,7 @@ def load_company_context() -> dict[str, object]:
     default_context: dict[str, object] = {
         "name": "Collexis",
         "short_name": "Collexis",
+        "address": "",
         "emails": tuple(),
         "phones": tuple(),
     }
@@ -117,11 +118,24 @@ def load_company_context() -> dict[str, object]:
     if isinstance(phone_value, str) and phone_value.strip():
         phones.append(phone_value.strip())
 
+    address_value = company.get("address")
+    address_parts: list[str] = []
+    if isinstance(address_value, list):
+        address_parts = [
+            str(part).strip()
+            for part in address_value
+            if str(part).strip()
+        ]
+    elif isinstance(address_value, str) and address_value.strip():
+        address_parts = [address_value.strip()]
+    company_address = ", ".join(address_parts)
+
     name = company.get("name")
     short_name = company.get("shortName")
     return {
         "name": name.strip() if isinstance(name, str) and name.strip() else default_context["name"],
         "short_name": short_name.strip() if isinstance(short_name, str) and short_name.strip() else default_context["short_name"],
+        "address": company_address,
         "emails": tuple(dict.fromkeys(emails)),
         "phones": tuple(dict.fromkeys(phones)),
     }
@@ -155,12 +169,15 @@ def build_job_intake_summary_prompt() -> str:
     company_name = str(company_context["name"])
     business_emails = ", ".join(str(email) for email in company_context["emails"]) or "none"
     business_phones = ", ".join(str(phone) for phone in company_context["phones"]) or "none"
+    business_address = str(company_context["address"]) or "none"
     return (
         "Summarize this uploaded debt-recovery case into job details. Return only the schema. "
         "Use only facts that are clearly supported by the processed documents and linked timeline items. "
         f"The creditor/business is {company_name}. "
         f"Never include the creditor's own contact details in emails or phones. Creditor emails: {business_emails}. Creditor phones: {business_phones}. "
+        f"Never use the creditor/business address as the job address. Creditor address: {business_address}. "
         "Return debtor/client contact details only; if none are visible, return empty lists. "
+        "address: the debtor/client or job site address if clearly visible, otherwise empty string. "
         "job_description: a short plain-English summary of the work or invoice. "
         "job_detail: a concise fuller summary of the work, invoice, dispute, and payment position. "
         "due_date: the invoice or payment due date if clear, otherwise null. "
@@ -179,6 +196,7 @@ def build_job_intake_review_prompt() -> str:
     company_name = str(company_context["name"])
     business_emails = ", ".join(str(email) for email in company_context["emails"]) or "none"
     business_phones = ", ".join(str(phone) for phone in company_context["phones"]) or "none"
+    business_address = str(company_context["address"]) or "none"
     return (
         "Review an existing debt-recovery job after follow-up documents were uploaded. Return only the schema. "
         "You are given the current saved job fields plus only the newly uploaded documents and any linked timeline items. "
@@ -190,7 +208,9 @@ def build_job_intake_review_prompt() -> str:
         "Do not remove supported existing facts just because they are not repeated in the new documents. "
         f"The creditor/business is {company_name}. "
         f"Never include the creditor's own contact details in emails or phones. Creditor emails: {business_emails}. Creditor phones: {business_phones}. "
+        f"Never use the creditor/business address as the job address. Creditor address: {business_address}. "
         "Return debtor/client contact details only. "
+        "address: keep the current value unless the new documents clearly establish or correct the debtor/client or job site address. "
         "job_description: short plain-English summary of the work or invoice. Preserve existing wording unless a factual update is needed. "
         "job_detail: fuller summary of the work, invoice, dispute, and payment position. Preserve manual content and add or revise only what the new documents materially change or confirm. "
         "due_date: keep the current value unless the new documents clearly establish or correct it. "
@@ -538,8 +558,27 @@ def filter_external_contacts(values: list[str], *, kind: str) -> list[str]:
     return filtered
 
 
+def normalize_address_text(value: str) -> str:
+    normalized = re.sub(r"\s+", " ", value.replace("\r", " ").replace("\n", ", ")).strip(" ,;")
+    normalized = re.sub(r"\s*,\s*", ", ", normalized)
+    return normalized
+
+
+def filter_external_address(value: str) -> str:
+    normalized = normalize_address_text(value)
+    if not normalized:
+        return ""
+
+    company_address = normalize_address_text(str(load_company_context()["address"]))
+    if company_address and normalized.casefold() == company_address.casefold():
+        return ""
+
+    return normalized
+
+
 def normalize_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
     return JobIntakeSummary(
+        address=filter_external_address(summary.address),
         job_description=summary.job_description.strip(),
         job_detail=summary.job_detail.strip(),
         due_date=summary.due_date,
@@ -553,6 +592,7 @@ def normalize_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
 
 def normalize_reviewed_job_intake_summary(summary: JobIntakeSummary) -> JobIntakeSummary:
     return JobIntakeSummary(
+        address=filter_external_address(summary.address),
         job_description=summary.job_description.strip(),
         job_detail=summary.job_detail.strip(),
         due_date=summary.due_date,
@@ -923,6 +963,7 @@ def summarize_job_intake(job_id: str, settings: Settings) -> JobIntakeSummary:
 
 def summary_from_existing_job(current_job: ExistingJobSnapshot) -> JobIntakeSummary:
     return JobIntakeSummary(
+        address=current_job.address,
         job_description=current_job.job_description,
         job_detail=current_job.job_detail,
         due_date=current_job.due_date,

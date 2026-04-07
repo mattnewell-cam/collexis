@@ -28,6 +28,7 @@ type ApiDocumentRecord = {
 };
 
 type ApiJobIntakeSummary = {
+  address: string;
   job_description: string;
   job_detail: string;
   due_date: string | null;
@@ -93,6 +94,7 @@ function createLocalDocument(document: DocumentRecord): EditableDocumentRecord {
 
 function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary {
   return {
+    address: summary.address,
     jobDescription: summary.job_description,
     jobDetail: summary.job_detail,
     dueDate: summary.due_date,
@@ -224,7 +226,8 @@ function sleep(ms: number) {
 }
 
 function jobChanged(current: Job, next: Job) {
-  return current.jobDescription !== next.jobDescription
+  return current.address !== next.address
+    || current.jobDescription !== next.jobDescription
     || current.jobDetail !== next.jobDetail
     || current.dueDate !== next.dueDate
     || current.price !== next.price

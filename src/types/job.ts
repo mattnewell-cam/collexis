@@ -28,6 +28,7 @@ export interface Job {
 }
 
 export interface JobIntakeSummary {
+  address: string;
   jobDescription: string;
   jobDetail: string;
   dueDate: string | null;

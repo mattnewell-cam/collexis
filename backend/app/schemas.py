@@ -86,6 +86,7 @@ class DocumentUpdate(BaseModel):
 
 
 class JobIntakeSummary(BaseModel):
+    address: str = Field(default="")
     job_description: str = Field(default="")
     job_detail: str = Field(default="")
     due_date: str | None = None

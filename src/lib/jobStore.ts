@@ -257,6 +257,9 @@ function mergeTextBlock(currentValue: string, incomingValue: string) {
 export function mergeJobWithIntakeSummary(job: Job, summary: JobIntakeSummary, referenceDate = new Date()): Job {
   const nextJob = { ...job };
 
+  if (isBlankString(nextJob.address) && !isBlankString(summary.address))
+    nextJob.address = summary.address.trim();
+
   if (isBlankString(nextJob.jobDescription) && !isBlankString(summary.jobDescription))
     nextJob.jobDescription = summary.jobDescription.trim();
 
@@ -301,6 +304,7 @@ export function applyReviewedJobIntakeSummary(job: Job, summary: JobIntakeSummar
 
   return {
     ...job,
+    address: chooseReviewedText(job.address, summary.address),
     jobDescription: chooseReviewedText(job.jobDescription, summary.jobDescription),
     jobDetail: chooseReviewedText(job.jobDetail, summary.jobDetail),
     dueDate,

@@ -869,6 +869,7 @@ def test_job_intake_upload_passes_processing_profile(tmp_path: Path) -> None:
 def test_intake_summary_route_returns_structured_summary(tmp_path: Path) -> None:
     client, _settings = build_client(tmp_path)
     client.app.state.job_intake_summarizer = lambda job_id, settings: JobIntakeSummary(
+        address="27 Calder Street, Leeds LS27 8TT",
         job_description="Emergency burst pipe repair",
         job_detail="Burst pipe call-out with unpaid invoice and a payment promise.",
         due_date="2026-03-21",
@@ -883,6 +884,7 @@ def test_intake_summary_route_returns_structured_summary(tmp_path: Path) -> None
 
     assert response.status_code == 200
     assert response.json() == {
+        "address": "27 Calder Street, Leeds LS27 8TT",
         "job_description": "Emergency burst pipe repair",
         "job_detail": "Burst pipe call-out with unpaid invoice and a payment promise.",
         "due_date": "2026-03-21",
@@ -972,6 +974,7 @@ def test_intake_summary_filters_business_contacts_and_trims_notes(monkeypatch, t
         def parse(self, *, model, input, text_format):
             return type("FakeResponse", (), {
                 "output_parsed": JobIntakeSummary(
+                    address="41 Armitage Street, Bristol BS3 5NE",
                     job_description="Repair invoice",
                     job_detail="Detailed summary",
                     due_date="2026-03-21",
@@ -996,11 +999,58 @@ def test_intake_summary_filters_business_contacts_and_trims_notes(monkeypatch, t
 
     summary = summarize_job_intake("job-777", settings)
 
+    assert summary.address == ""
     assert summary.emails == ["james@example.com"]
     assert summary.phones == ["07700 900 111"]
     assert "accounts@northgateps.co.uk" not in summary.context_instructions
     assert "0117 496 2184" not in summary.context_instructions
     assert len(summary.context_instructions.split()) <= 35
+
+
+def test_intake_summary_keeps_customer_address(monkeypatch, tmp_path: Path) -> None:
+    client, settings = build_client(tmp_path)
+    client.app.state.document_processor = noop_processor
+
+    create_response = client.post(
+        "/jobs/job-888/documents",
+        files={"file": ("invoice.pdf", b"%PDF-1.4 fake", "application/pdf")},
+    )
+    document_id = create_response.json()["id"]
+    DocumentRepository(settings).update_fields(
+        document_id,
+        status="ready",
+        title="Invoice INV-888",
+        communication_date="2026-03-14",
+        description="Invoice for leak repair.",
+        transcript="sender: Northgate Property Services Ltd",
+    )
+
+    class FakeResponses:
+        def parse(self, *, model, input, text_format):
+            return type("FakeResponse", (), {
+                "output_parsed": JobIntakeSummary(
+                    address="27 Calder Street, Leeds LS27 8TT",
+                    job_description="Leak repair invoice",
+                    job_detail="Detailed summary",
+                    due_date="2026-03-21",
+                    price=684,
+                    amount_paid=0,
+                    emails=[],
+                    phones=[],
+                    context_instructions="",
+                ),
+            })()
+
+    class FakeOpenAI:
+        def __init__(self, api_key: str):
+            self.api_key = api_key
+            self.responses = FakeResponses()
+
+    monkeypatch.setattr("backend.app.extraction.OpenAI", FakeOpenAI)
+
+    summary = summarize_job_intake("job-888", settings)
+
+    assert summary.address == "27 Calder Street, Leeds LS27 8TT"
 
 
 def test_delete_job_removes_documents_timeline_and_uploaded_files(tmp_path: Path) -> None:

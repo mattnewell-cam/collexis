@@ -15,6 +15,7 @@ interface Props {
 }
 
 type ApiJobIntakeSummary = {
+  address: string;
   job_description: string;
   job_detail: string;
   due_date: string | null;
@@ -27,6 +28,7 @@ type ApiJobIntakeSummary = {
 
 function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary {
   return {
+    address: summary.address,
     jobDescription: summary.job_description,
     jobDetail: summary.job_detail,
     dueDate: summary.due_date,
