@@ -242,6 +242,18 @@ function uniqueNonEmpty(values: string[]) {
   return Array.from(new Set(values.map(v => v.trim()).filter(Boolean)));
 }
 
+function mergeTextBlock(currentValue: string, incomingValue: string) {
+  const current = currentValue.trim();
+  const incoming = incomingValue.trim();
+
+  if (!incoming) return current;
+  if (!current) return incoming;
+  if (current.includes(incoming)) return current;
+  if (incoming.includes(current)) return incoming;
+
+  return `${current}\n\n${incoming}`;
+}
+
 export function mergeJobWithIntakeSummary(job: Job, summary: JobIntakeSummary, referenceDate = new Date()): Job {
   const nextJob = { ...job };
 
@@ -262,14 +274,23 @@ export function mergeJobWithIntakeSummary(job: Job, summary: JobIntakeSummary, r
   if (nextJob.amountPaid === 0 && summary.amountPaid !== null)
     nextJob.amountPaid = summary.amountPaid;
 
-  if (nextJob.emails.length === 0 && summary.emails.length > 0)
-    nextJob.emails = uniqueNonEmpty(summary.emails);
+  if (summary.emails.length > 0)
+    nextJob.emails = uniqueNonEmpty([...nextJob.emails, ...summary.emails]);
 
-  if (nextJob.phones.length === 0 && summary.phones.length > 0)
-    nextJob.phones = uniqueNonEmpty(summary.phones);
+  if (summary.phones.length > 0)
+    nextJob.phones = uniqueNonEmpty([...nextJob.phones, ...summary.phones]);
 
   if (isBlankString(nextJob.contextInstructions) && !isBlankString(summary.contextInstructions))
     nextJob.contextInstructions = summary.contextInstructions.trim();
+
+  return nextJob;
+}
+
+export function refreshJobFromIntakeSummary(job: Job, summary: JobIntakeSummary, referenceDate = new Date()): Job {
+  const nextJob = mergeJobWithIntakeSummary(job, summary, referenceDate);
+
+  nextJob.jobDetail = mergeTextBlock(nextJob.jobDetail, summary.jobDetail);
+  nextJob.contextInstructions = mergeTextBlock(nextJob.contextInstructions, summary.contextInstructions);
 
   return nextJob;
 }

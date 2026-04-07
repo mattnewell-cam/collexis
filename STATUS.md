@@ -23,6 +23,7 @@
 
 ### UI
 - Job detail sub-routes now share cached job/documents/communications/outreach-plan state under the `[id]` layout, so switching tabs no longer cold-loads those panels every time.
+- Uploading documents from an existing job now refreshes the job intake summary too, so the Details tab picks up newly extracted job detail, internal notes, and contact info instead of only adding a new document card.
 
 ### Runtime
 - Local generated artifacts now consolidate under `runtime/`, including backend SQLite/uploads defaults, sandbox backend data dirs, Next build output, pytest cache, tsbuildinfo, the build/start runtime venv, and the Playwright WhatsApp profile path.

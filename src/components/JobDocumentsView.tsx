@@ -4,10 +4,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useJobRouteCache } from '@/components/JobRouteCacheProvider';
 import { documentBackendPath } from '@/lib/documentBackend';
+import { refreshJobFromIntakeSummary } from '@/lib/jobStore';
 import { runClientAction, type ClientActionTrace } from '@/lib/logging/client';
 import { loggedFetch } from '@/lib/logging/fetch';
 import { toUserFacingErrorMessage } from '@/lib/userFacingError';
 import type { DocumentRecord } from '@/types/document';
+import type { Job, JobIntakeSummary } from '@/types/job';
 
 type ApiDocumentRecord = {
   id: string;
@@ -23,6 +25,17 @@ type ApiDocumentRecord = {
   extraction_error: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type ApiJobIntakeSummary = {
+  job_description: string;
+  job_detail: string;
+  due_date: string | null;
+  price: number | null;
+  amount_paid: number | null;
+  emails: string[];
+  phones: string[];
+  context_instructions: string;
 };
 
 type EditableField = 'title' | 'communicationDate' | 'description' | 'transcript';
@@ -59,6 +72,19 @@ function createLocalDocument(document: DocumentRecord): EditableDocumentRecord {
     isSaving: false,
     pendingSave: false,
     saveError: null,
+  };
+}
+
+function mapApiJobIntakeSummary(summary: ApiJobIntakeSummary): JobIntakeSummary {
+  return {
+    jobDescription: summary.job_description,
+    jobDetail: summary.job_detail,
+    dueDate: summary.due_date,
+    price: summary.price,
+    amountPaid: summary.amount_paid,
+    emails: summary.emails,
+    phones: summary.phones,
+    contextInstructions: summary.context_instructions,
   };
 }
 
@@ -159,11 +185,28 @@ function displayExtractionError(message: string | null) {
   );
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+function jobChanged(current: Job, next: Job) {
+  return current.jobDescription !== next.jobDescription
+    || current.jobDetail !== next.jobDetail
+    || current.dueDate !== next.dueDate
+    || current.price !== next.price
+    || current.amountPaid !== next.amountPaid
+    || current.daysOverdue !== next.daysOverdue
+    || current.contextInstructions !== next.contextInstructions
+    || JSON.stringify(current.emails) !== JSON.stringify(next.emails)
+    || JSON.stringify(current.phones) !== JSON.stringify(next.phones);
+}
+
 export default function JobDocumentsView({ jobId }: { jobId: string }) {
-  const { documents: cachedDocuments, setDocuments: setCachedDocuments } = useJobRouteCache();
+  const { job, setJob, documents: cachedDocuments, setDocuments: setCachedDocuments } = useJobRouteCache();
   const inputRef = useRef<HTMLInputElement>(null);
   const saveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const latestDocuments = useRef<EditableDocumentRecord[]>([]);
+  const latestJob = useRef(job);
   const [dragging, setDragging] = useState(false);
   const [documents, setDocuments] = useState<EditableDocumentRecord[]>(() =>
     cachedDocuments.loaded ? cachedDocuments.data.map(createLocalDocument) : [],
@@ -177,6 +220,10 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
   useEffect(() => {
     latestDocuments.current = documents;
   }, [documents]);
+
+  useEffect(() => {
+    latestJob.current = job;
+  }, [job]);
 
   useEffect(() => {
     if (!viewerDocument) {
@@ -239,13 +286,12 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
   useEffect(() => {
     if (cachedDocuments.loaded) {
-      setDocuments(cachedDocuments.data.map(createLocalDocument));
       setLoading(false);
       return;
     }
 
     void fetchDocuments(true);
-  }, [cachedDocuments.data, cachedDocuments.loaded, fetchDocuments]);
+  }, [cachedDocuments.loaded, fetchDocuments]);
 
   useEffect(() => {
     if (!hasProcessingDocuments) return;
@@ -314,6 +360,85 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     }
   }, [jobId]);
 
+  const waitForDocumentsToSettle = useCallback(async (documentIds: string[], trace?: ClientActionTrace) => {
+    if (documentIds.length === 0 || !jobId) return;
+
+    while (true) {
+      const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), { cache: 'no-store' }, {
+        name: 'documents.poll_processing_status',
+        context: {
+          jobId,
+          documentCount: documentIds.length,
+        },
+        trace,
+      });
+
+      if (!response.ok) {
+        throw new Error('Could not check document processing.');
+      }
+
+      const payload: ApiDocumentRecord[] = await response.json() as ApiDocumentRecord[];
+      const nextDocuments = payload.map(mapApiDocument);
+      const trackedDocuments = nextDocuments.filter(document => documentIds.includes(document.id));
+      const pendingDocuments = trackedDocuments.some(document => document.status === 'processing') || trackedDocuments.length < documentIds.length;
+
+      setDocuments(prev => mergeDocuments(prev, nextDocuments));
+      setCachedDocuments(nextDocuments);
+
+      if (!pendingDocuments) {
+        return;
+      }
+
+      await sleep(1500);
+    }
+  }, [jobId, setCachedDocuments]);
+
+  const syncJobFromProcessedDocuments = useCallback(async (documentIds: string[], trace?: ClientActionTrace) => {
+    if (!jobId || documentIds.length === 0) return;
+
+    await waitForDocumentsToSettle(documentIds, trace);
+
+    const summaryResponse = await loggedFetch(documentBackendPath(`/jobs/${jobId}/intake-summary`), { cache: 'no-store' }, {
+      name: 'jobs.fetch_intake_summary',
+      context: {
+        jobId,
+        documentCount: documentIds.length,
+      },
+      trace,
+    });
+
+    if (!summaryResponse.ok) {
+      throw new Error('Could not refresh the job details from the uploaded documents.');
+    }
+
+    const summary = mapApiJobIntakeSummary(await summaryResponse.json() as ApiJobIntakeSummary);
+    const refreshedJob = refreshJobFromIntakeSummary(latestJob.current, summary);
+
+    if (!jobChanged(latestJob.current, refreshedJob)) {
+      return;
+    }
+
+    const persistResponse = await loggedFetch(`/api/jobs/${jobId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(refreshedJob),
+    }, {
+      name: 'jobs.persist_processed_details',
+      context: {
+        jobId,
+        documentCount: documentIds.length,
+      },
+      trace,
+    });
+
+    if (!persistResponse.ok) {
+      throw new Error('Could not save the refreshed job details.');
+    }
+
+    const payload = await persistResponse.json() as { job: Job };
+    setJob(payload.job);
+  }, [jobId, setJob, waitForDocumentsToSettle]);
+
   const scheduleSave = useCallback((documentId: string) => {
     const existingTimer = saveTimers.current[documentId];
     if (existingTimer) clearTimeout(existingTimer);
@@ -369,6 +494,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
 
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('processing_profile', 'job-intake');
 
     try {
       const response = await loggedFetch(documentBackendPath(`/jobs/${jobId}/documents`), {
@@ -391,6 +517,7 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
       const created = createLocalDocument(mapApiDocument(await response.json() as ApiDocumentRecord));
       setDocuments(prev => prev.map(doc => (doc.id === tempId ? created : doc)));
       setPageError(null);
+      return created;
     } catch (error) {
       const message = toUserFacingErrorMessage(error, 'Could not upload document.');
       setDocuments(prev => prev.filter(doc => doc.id !== tempId));
@@ -403,15 +530,37 @@ export default function JobDocumentsView({ jobId }: { jobId: string }) {
     if (!incoming || !jobId) return;
     setUploading(true);
     try {
-      await runClientAction('documents.upload_from_documents_view', async trace =>
-        Promise.all(Array.from(incoming).map(file => uploadFile(file, trace))), {
+      await runClientAction('documents.upload_from_documents_view', async trace => {
+        const results = await Promise.allSettled(Array.from(incoming).map(file => uploadFile(file, trace)));
+        const uploadedDocumentIds = results
+          .filter((result): result is PromiseFulfilledResult<EditableDocumentRecord> => result.status === 'fulfilled')
+          .map(result => result.value.id)
+          .filter(documentId => !documentId.startsWith('temp-'));
+
+        if (uploadedDocumentIds.length > 0) {
+          await syncJobFromProcessedDocuments(uploadedDocumentIds, trace);
+        }
+
+        const firstRejected = results.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+        if (firstRejected) {
+          throw firstRejected.reason instanceof Error
+            ? firstRejected.reason
+            : new Error('Could not upload document.');
+        }
+      }, {
         jobId,
         fileCount: incoming.length,
       });
+      setPageError(null);
+    } catch (error) {
+      setPageError(toUserFacingErrorMessage(
+        error,
+        'Uploaded documents could not refresh the job details automatically. Please review the details page manually.',
+      ));
     } finally {
       setUploading(false);
     }
-  }, [jobId, uploadFile]);
+  }, [jobId, syncJobFromProcessedDocuments, uploadFile]);
 
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
