@@ -14,6 +14,10 @@ Default local URL: `http://localhost:3000`
 
 Use the local server for development, testing, and visual verification by default. Do not use or rely on the hosted `collexis.uk` site unless the user explicitly asks for production verification.
 
+## Communication
+
+Explain things in plain English where possible. Prefer everyday words over technical jargon, and if a technical term is needed, explain it briefly in simple language.
+
 ## UI Verification
 
 Whenever making UI changes, take a screenshot of the result afterwards and actually inspect it before completing the turn.
