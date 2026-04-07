@@ -575,12 +575,9 @@ export default function JobCommsView({ job }: { job: Job }) {
     setIntakeJustCompleted(true);
     setTimeout(() => {
       setIntakeJustCompleted(false);
-      setPlanConfirmState({
-        intent: 'generate',
-        missingPhone: !hasPhoneContact,
-      });
+      void handleGeneratePlan();
     }, 1500);
-  }, [jobState, persistJobPatch, hasPhoneContact]);
+  }, [jobState, persistJobPatch, handleGeneratePlan]);
 
   const handleLinkDocument = useCallback(async (comm: Communication, documentId: string) => {
     try {
